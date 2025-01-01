@@ -1,4 +1,4 @@
-package com.atomiteam.jdbi.generic.dao;
+package org.atomiteam.jdbi.generic.dao;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -68,7 +68,7 @@ public class GenericDaoTest {
         handle.createQuery("SELECT * FROM \"hotel\" WHERE id = :id");
 
         Hotel hotel = new Hotel();
-        hotel.setId("Hotel1");
+        hotel.setId("Hotel_Insert_1");
         hotel.setName("Hotel 1");
 
         // Insert a hotel
@@ -76,9 +76,9 @@ public class GenericDaoTest {
         hotelDao.update(hotel);
 
         // Verify insertion
-        Optional<Hotel> insertedHotel = hotelDao.getById("Hotel1");
+        Optional<Hotel> insertedHotel = hotelDao.getById("Hotel_Insert_1");
         assertTrue(insertedHotel.isPresent(), "Inserted Hotel not found.");
-        assertEquals("Hotel1", insertedHotel.get().getId());
+        assertEquals("Hotel_Insert_1", insertedHotel.get().getId());
         assertEquals("Hotel 1", insertedHotel.get().getName());
     }
 
@@ -106,15 +106,15 @@ public class GenericDaoTest {
     @Test
     public void testGetAllHotels() {
         // Insert multiple hotels
-        insertTestHotel("Hotel1");
-        insertTestHotel("Hotel2");
-        insertTestHotel("Hotel3");
+        insertTestHotel("Hotel_Get_1");
+        insertTestHotel("Hotel_Get_2");
+        insertTestHotel("Hotel_Get_3");
 
         // Retrieve all hotels
         List<Hotel> hotels = hotelDao.listAll();
-        assertEquals(3, hotels.size(), "Unexpected number of hotels retrieved.");
+        assertEquals(4, hotels.size(), "Unexpected number of hotels retrieved.");
 
-        List<Hotel> filtered = hotelDao.listAll(Map.of("name", "Hotel1"));
+        List<Hotel> filtered = hotelDao.listAll(Map.of("id", "Hotel_Get_1"));
         assertEquals(1, filtered.size(), "Unexpected number of hotels retrieved.");
     }
 
@@ -124,13 +124,13 @@ public class GenericDaoTest {
     @Test
     public void testDelete() {
         // Insert a hotel
-        insertTestHotel("Hotel1");
+        insertTestHotel("Hotel_Delete_1");
 
         // Delete the hotel
-        hotelDao.delete("Hotel1");
+        hotelDao.delete("Hotel_Delete_1");
 
         // Verify deletion
-        Optional<Hotel> deletedHotel = hotelDao.getById("Hotel1");
+        Optional<Hotel> deletedHotel = hotelDao.getById("Hotel_Delete_1");
         assertTrue(deletedHotel.isEmpty(), "Deleted Hotel should not exist.");
     }
 
@@ -140,18 +140,18 @@ public class GenericDaoTest {
     @Test
     public void testUpdate() {
         // Insert a hotel
-        insertTestHotel("Hotel1");
-        Optional<Hotel> actualHotelAfterInsert = hotelDao.getById("Hotel1");
+        insertTestHotel("Hotel_Update_1");
+        Optional<Hotel> actualHotelAfterInsert = hotelDao.getById("Hotel_Update_1");
         assertEquals("Test Hotel", actualHotelAfterInsert.get().getName());
 
         // Update the hotel
         Hotel updatedHotel = new Hotel();
-        updatedHotel.setId("Hotel1");
+        updatedHotel.setId("Hotel_Update_1");
         updatedHotel.setName("Updated Name");
         hotelDao.update(updatedHotel);
 
         // Verify the update
-        Optional<Hotel> actualHotel = hotelDao.getById("Hotel1");
+        Optional<Hotel> actualHotel = hotelDao.getById("Hotel_Update_1");
         assertTrue(actualHotel.isPresent(), "Updated Hotel not found.");
         assertEquals("Updated Name", actualHotel.get().getName());
     }

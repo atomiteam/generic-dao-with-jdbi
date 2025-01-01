@@ -1,4 +1,4 @@
-package com.atomiteam.jdbi.generic.dao;
+package org.atomiteam.jdbi.generic.dao;
 
 import java.lang.reflect.Field;
 import java.util.HashMap;

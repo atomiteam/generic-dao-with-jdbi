@@ -1,4 +1,6 @@
-package com.atomiteam.jdbi.generic.dao;
+package org.atomiteam.jdbi.generic.dao;
+
+import org.atomiteam.jdbi.generic.dao.Entity;
 
 public class Hotel extends Entity {
     private String name;
