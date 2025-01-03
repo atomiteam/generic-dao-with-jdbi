@@ -1,6 +1,6 @@
 package org.atomiteam.jdbi.generic.dao;
 
-
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -8,6 +8,7 @@ import java.util.stream.Collectors;
 
 import org.jdbi.v3.core.Jdbi;
 import org.jdbi.v3.core.mapper.reflect.BeanMapper;
+import org.jdbi.v3.core.statement.Query;
 
 /**
  * A generic DAO class for CRUD operations using JDBI.
@@ -23,7 +24,7 @@ public class GenericDao<T extends Entity> {
     /**
      * Constructs a new GenericDao instance.
      * 
-     * @param jdbi the Jdbi instance for database interaction.
+     * @param jdbi  the Jdbi instance for database interaction.
      * @param klazz the class of the entity.
      * @param table the name of the database table.
      */
@@ -41,20 +42,17 @@ public class GenericDao<T extends Entity> {
     public void insert(T entity) {
         try {
             Map<String, Object> data = entity.getChanges();
-            List<String> columns = data.keySet().stream() //
-                .collect(Collectors.toList());
-            List<String> placeholders = columns.stream() //
-                .map(column -> ":" + column).collect(Collectors.toList());
+            List<String> columns = data.keySet().stream()
+                    .collect(Collectors.toList());
+            List<String> placeholders = columns.stream()
+                    .map(column -> ":" + column).collect(Collectors.toList());
 
-            String sql = String.format("INSERT INTO %s (%s) VALUES (%s)", //
-                table, String.join(", ", columns), String.join(", ", //
-                placeholders));
+            String sql = String.format("INSERT INTO %s (%s) VALUES (%s)",
+                    table, String.join(", ", columns), String.join(", ", placeholders));
 
-            jdbi.withHandle(handle -> handle.createUpdate(sql).bindMap(data) //
-                .execute());
+            jdbi.withHandle(handle -> handle.createUpdate(sql).bindMap(data).execute());
         } catch (Exception e) {
-            throw new RuntimeException("Error inserting entity into table " + //
-                table, e);
+            throw new RuntimeException("Error inserting entity into table " + table, e);
         }
     }
 
@@ -66,34 +64,58 @@ public class GenericDao<T extends Entity> {
      */
     public Optional<T> getById(String id) {
         String sql = String.format("SELECT * FROM %s WHERE id = ?", table);
-        return jdbi.withHandle(handle -> handle.createQuery(sql).bind(0, id) //
-            .map(BeanMapper.of(klazz)).findFirst());
+        return jdbi.withHandle(handle -> handle.createQuery(sql).bind(0, id)
+                .map(BeanMapper.of(klazz)).findFirst());
     }
 
     /**
-     * Lists all entities in the table.
+     * Filters entities based on the provided conditions.
      * 
-     * @return a list of all entities.
+     * @param conditions the filtering conditions to apply.
+     * @return a list of entities that match the conditions.
      */
-    public List<T> listAll() {
-        String sql = String.format("SELECT * FROM %s", table);
-        return jdbi.withHandle(handle -> handle.createQuery(sql) //
-            .map(BeanMapper.of(klazz)).list());
-    }
+    public List<T> filter(Filtering conditions) {
+        String whereClause = conditions.filterings()
+                .stream()
+                .map(filter -> {
+                    String key = filter.getName();
+                    Operator operator = filter.getOperator();
+                    switch (operator) {
+                        case In:
+                            return String.format("%s IN (<%s>)", key, key);
+                        case NotIn:
+                            return String.format("%s NOT IN (<%s>)", key, key);
+                        case Like:
+                            return String.format("%s LIKE :%s", key, key);
+                        case NotLike:
+                            return String.format("%s NOT LIKE :%s", key, key);
+                        case Eq:
+                            return String.format("%s = :%s", key, key);
+                        case NotEq:
+                            return String.format("%s != :%s", key, key);
+                        default:
+                            throw new IllegalArgumentException("Unsupported operator: " + operator);
+                    }
+                }).collect(Collectors.joining(" AND "));
 
-    /**
-     * Lists all entities matching the specified criteria.
-     * 
-     * @param where a map of column names to values for filtering.
-     * @return a list of matching entities.
-     */
-    public List<T> listAll(Map<String, Object> where) {
-        String sql = String.format("SELECT * FROM %s WHERE ", table);
-        String whereClause = where.entrySet().stream() //
-            .map(entry -> String.format("%s = :%s", entry.getKey(), entry.getKey())) //
-            .collect(Collectors.joining(" AND "));
-        return jdbi.withHandle(handle -> handle.createQuery(sql + whereClause) //
-            .bindMap(where).map(BeanMapper.of(klazz)).list());
+        String where = conditions.filterings().size() == 0 ? "" : "WHERE";
+        String sql = String.format("SELECT * FROM %s %s %s", table, where, whereClause);
+
+        return jdbi.withHandle(handle -> {
+            Query query = handle.createQuery(sql);
+            for (Filter filter : conditions.filterings()) {
+                String key = filter.getName();
+                Object value = filter.getValue();
+                if (value instanceof Collection<?>) {
+                    // Handle collections (e.g., for IN or NOT IN operators)
+                    query.bindList(key, (Collection<?>) value);
+                } else {
+                    // Handle single values
+                    query.bind(key, value);
+                }
+            }
+            return query.map(BeanMapper.of(klazz)).list();
+        });
     }
 
     /**
@@ -104,8 +126,7 @@ public class GenericDao<T extends Entity> {
      */
     public int delete(String id) {
         String sql = String.format("DELETE FROM %s WHERE id = ?", table);
-        return jdbi.withHandle(handle -> handle.createUpdate(sql).bind(0, id) //
-            .execute());
+        return jdbi.withHandle(handle -> handle.createUpdate(sql).bind(0, id).execute());
     }
 
     /**
@@ -121,15 +142,14 @@ public class GenericDao<T extends Entity> {
             return 0;
         }
 
-        StringBuilder sql = new StringBuilder(String.format("UPDATE %s SET ", //
-            table));
-        List<String> setClauses = changes.entrySet().stream() //
-            .map(entry -> String.format("%s = :%s", entry.getKey(), entry.getKey())) //
-            .collect(Collectors.toList());
+        StringBuilder sql = new StringBuilder(String.format("UPDATE %s SET ", table));
+        List<String> setClauses = changes.entrySet().stream()
+                .map(entry -> String.format("%s = :%s", entry.getKey(), entry.getKey()))
+                .collect(Collectors.toList());
         sql.append(String.join(", ", setClauses));
         sql.append(" WHERE id = :id");
 
-        return jdbi.withHandle(handle -> handle.createUpdate(sql.toString()) //
-            .bind("id", target.getId()).bindMap(changes).execute());
+        return jdbi.withHandle(handle -> handle.createUpdate(sql.toString())
+                .bind("id", target.getId()).bindMap(changes).execute());
     }
 }
