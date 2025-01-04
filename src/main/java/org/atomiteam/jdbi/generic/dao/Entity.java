@@ -1,6 +1,7 @@
 package org.atomiteam.jdbi.generic.dao;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -41,27 +42,26 @@ public class Entity {
      * values.
      */
     public <T> Map<String, Object> getChanges() {
-        Map<String, Object> map = new HashMap<>();
-        Class<?> currentClass = getClass(); // Start with the class of the //
-        // current instance
+        Map<String, Object> changes = new HashMap<>();
+        Class<?> currentClass = getClass();
 
         try {
-            // Traverse the class hierarchy (including subclasses)
             while (currentClass != null) {
                 for (Field field : currentClass.getDeclaredFields()) {
-                    field.setAccessible(true); // Make private fields accessible
-                    Object value = field.get(this); // Get the value of the field
-                    if (value != null) {
-                        map.put(field.getName(), value);
+                    if (!Modifier.isStatic(field.getModifiers())) { // Exclude static fields
+                        field.setAccessible(true);
+                        Object value = field.get(this);
+                        if (value != null) {
+                            changes.put(field.getName(), value);
+                        }
                     }
                 }
-                currentClass = currentClass.getSuperclass(); // Move to the //
-                // superclass
+                currentClass = currentClass.getSuperclass();
             }
         } catch (IllegalAccessException e) {
             e.printStackTrace();
         }
 
-        return map;
+        return changes;
     }
 }

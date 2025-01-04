@@ -1,8 +1,9 @@
 package org.atomiteam.jdbi.generic.dao;
 
-import org.atomiteam.jdbi.generic.dao.Entity;
-
 public class Hotel extends Entity {
+
+    public static final String TEST_STATIC = "static value";
+
     private String name;
 
     public String getName() {
