@@ -3,6 +3,7 @@ package org.atomiteam.jdbi.generic.dao;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * A class for building and managing a collection of filters to be applied in queries.
@@ -133,6 +134,6 @@ public class Filtering {
         return filters //
                 .stream() //
                 .filter( f ->  Objects.nonNull(f.getValue())) //
-                .toList();
+                .collect(Collectors.toList());
     }
 }

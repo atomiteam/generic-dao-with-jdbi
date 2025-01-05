@@ -98,7 +98,7 @@ public class GenericDaoTest {
 
         // Try to retrieve a non-existent hotel
         Optional<Hotel> nonExistentHotel = hotelDao.getById("non_existent_id");
-        assertTrue(nonExistentHotel.isEmpty(), "Non-existent Hotel should be empty.");
+        assertFalse(nonExistentHotel.isPresent(), "Non-existent Hotel should be empty.");
     }
 
     /**
@@ -114,7 +114,7 @@ public class GenericDaoTest {
 
         // Verify deletion
         Optional<Hotel> deletedHotel = hotelDao.getById("Hotel_Delete_1");
-        assertTrue(deletedHotel.isEmpty(), "Deleted Hotel should not exist.");
+        assertFalse(deletedHotel.isPresent(), "Deleted Hotel should not exist.");
     }
 
     /**
