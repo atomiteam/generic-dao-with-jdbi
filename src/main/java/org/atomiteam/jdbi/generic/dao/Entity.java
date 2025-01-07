@@ -41,7 +41,7 @@ public class Entity {
      * @return a map containing field names as keys and their corresponding //
      * values.
      */
-    public <T> Map<String, Object> getChanges() {
+    public <T> Map<String, Object> toChanges() {
         Map<String, Object> changes = new HashMap<>();
         Class<?> currentClass = getClass();
 

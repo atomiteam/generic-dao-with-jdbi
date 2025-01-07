@@ -41,7 +41,7 @@ public class GenericDao<T extends Entity> {
      */
     public void insert(T entity) {
         try {
-            Map<String, Object> data = entity.getChanges();
+            Map<String, Object> data = entity.toChanges();
             List<String> columns = data.keySet().stream()
                     .collect(Collectors.toList());
             List<String> placeholders = columns.stream()
@@ -136,7 +136,7 @@ public class GenericDao<T extends Entity> {
      * @return the number of rows affected.
      */
     public int update(T target) {
-        Map<String, Object> changes = target.getChanges();
+        Map<String, Object> changes = target.toChanges();
         changes.remove("id");
         if (changes.isEmpty()) {
             return 0;
