@@ -57,7 +57,7 @@ public class Entity {
 					if (!Modifier.isStatic(field.getModifiers())) {
 						field.setAccessible(true);
 						Object value = field.get(this);
-						if (value != null) {
+						if (value != null && !field.isAnnotationPresent(Transient.class)) {
 							if (field.isAnnotationPresent(Json.class)) {
 								changes.put(field.getName(),
 										gson.toJson(value));
