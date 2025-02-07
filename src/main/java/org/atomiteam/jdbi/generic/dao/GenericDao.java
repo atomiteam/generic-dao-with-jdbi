@@ -194,7 +194,7 @@ class JsonRowMapper<T> implements RowMapper<T> {
 			while (Objects.nonNull(currentClass)) {
 				for (Field field : currentClass.getDeclaredFields()) {
 					// Exclude static fields
-					if (!Modifier.isStatic(field.getModifiers())) {
+					if (!Modifier.isStatic(field.getModifiers()) && !field.isAnnotationPresent(Transient.class)) {
 						field.setAccessible(true);
 						try {
 							Object value = field.isAnnotationPresent(Json.class)
@@ -203,8 +203,9 @@ class JsonRowMapper<T> implements RowMapper<T> {
 											field.getType())
 									: // else
 									rs.getObject(field.getName());
-							field.set(instance, value);
+							PropertyUtils.setPropertyValue(instance, type, field, value);
 						} catch (SQLException e) {
+						    e.printStackTrace();
 							// Column does not exist
 						}
 					}
