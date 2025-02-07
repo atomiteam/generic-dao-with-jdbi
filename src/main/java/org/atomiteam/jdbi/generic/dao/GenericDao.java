@@ -114,10 +114,24 @@ public class GenericDao<T extends Entity> {
 							"Unsupported operator: " + operator);
 			}
 		}).collect(Collectors.joining(" AND "));
+		
+		StringBuilder pagination = new StringBuilder();
+		if (conditions.getLimit() != null) {
+		    pagination
+		      .append(" LIMIT ")
+		      .append(conditions.getLimit())
+		      .append(" ");
+		}
+        if (conditions.getOffset() != null) {
+            pagination
+              .append(" OFFSET ")
+              .append(conditions.getOffset())
+              .append(" ");
+        }
 
 		String where = conditions.filterings().isEmpty() ? "" : "WHERE";
-		String sql = String.format("SELECT * FROM %s %s %s", table, where,
-				whereClause);
+		String sql = String.format("SELECT * FROM %s %s %s %s", table, where,
+				whereClause, pagination.toString());
 
 		return jdbi.withHandle(handle -> {
 			Query query = handle.createQuery(sql);

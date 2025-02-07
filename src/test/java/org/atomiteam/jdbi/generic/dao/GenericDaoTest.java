@@ -216,6 +216,13 @@ public class GenericDaoTest {
 		assertEquals(1, notInHotels.size(),
 				"NotIn operator should retrieve one match.");
 		assertEquals("Hotel_2", notInHotels.get(0).getId());
+		
+        List<Hotel> paginated = hotelDao.filter(
+                Filtering.create().withOffset(1L).withLimit(1L));
+        assertEquals(1, paginated.size(),
+                "Pagination should retrieve one result.");
+        assertEquals("Hotel_2", paginated.get(0).getId());
+        		
 	}
 
 	@Test
