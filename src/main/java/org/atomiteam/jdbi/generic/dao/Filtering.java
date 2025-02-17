@@ -21,6 +21,7 @@ public class Filtering {
     private final List<Filter> filters = new ArrayList<>();
     private Long offset;
     private Long limit;
+    private LogicalOperator operator = LogicalOperator.AND;
     
     /**
      * Private constructor to enforce the use of the factory method `create`.
@@ -115,4 +116,15 @@ public class Filtering {
         this.limit = limit;
         return this;
     }
+    
+    
+    public LogicalOperator getOperator() {
+        return operator;
+    }
+
+    public Filtering withOperator(LogicalOperator operator) {
+        this.operator = operator;
+        return this;
+    }
+
 }

@@ -113,7 +113,7 @@ public class GenericDao<T extends Entity> {
 					throw new IllegalArgumentException(
 							"Unsupported operator: " + operator);
 			}
-		}).collect(Collectors.joining(" AND "));
+		}).collect(Collectors.joining(" " + conditions.getOperator().name() + " "));
 		
 		StringBuilder pagination = new StringBuilder();
 		if (conditions.getLimit() != null) {
