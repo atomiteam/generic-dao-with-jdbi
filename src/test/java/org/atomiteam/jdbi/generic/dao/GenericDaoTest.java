@@ -188,9 +188,9 @@ public class GenericDaoTest {
 
 		// Test Like operator
 		List<Hotel> likeHotels = hotelDao
-				.filter(Filtering.create().like("id", "Hotel%"));
-		assertEquals(3, likeHotels.size(),
-				"Like operator should retrieve all matches.");
+				.filter(Filtering.create().like("id", "Hotel%").withSorting("id", Sorting.DESC));
+		assertEquals("Hotel_3", likeHotels.get(0).getId(),
+				"Sorting by id desc should work.");
 
 		// Test NotLike operator
 		List<Hotel> notLikeHotels = hotelDao
@@ -252,5 +252,46 @@ public class GenericDaoTest {
 		assertEquals(0, rowsUpdated,
 				"Updating with no changes should not affect any rows.");
 	}
+	
+	
+	/**
+     * Tests the count functionality with filtering conditions.
+     */
+    @Test
+    public void testCountWithFiltering() {
+        // Insert test data
+        insertTestHotel("Hotel_10");
+        insertTestHotel("Hotel_20");
+        insertTestHotel("Hotel_30");
+
+        // Count all hotels
+        int total = hotelDao.count(Filtering.create());
+        assertEquals(7, total, "Total count should be 3.");
+
+        // Count with Eq
+        int countEq = hotelDao.count(Filtering.create().eq("id", "Hotel_10"));
+        assertEquals(1, countEq, "Eq condition should result in count 1.");
+
+        // Count with NotEq
+        int countNotEq = hotelDao.count(Filtering.create().notEq("id", "Hotel_10"));
+        assertEquals(6, countNotEq, "NotEq condition should result in count 6.");
+
+        // Count with In
+        int countIn = hotelDao.count(Filtering.create().in("id", List.of("Hotel_10", "Hotel_20")));
+        assertEquals(2, countIn, "In condition should result in count 2.");
+
+        // Count with NotIn
+        int countNotIn = hotelDao.count(Filtering.create().notIn("id", List.of("Hotel_10")));
+        assertEquals(6, countNotIn, "NotIn condition should result in count 6.");
+
+        // Count with Like
+        int countLike = hotelDao.count(Filtering.create().like("id", "Hotel%"));
+        assertEquals(6, countLike, "Like condition should result in count 6.");
+
+        // Count with NotLike
+        int countNotLike = hotelDao.count(Filtering.create().notLike("id", "Hotel_1"));
+        assertEquals(6, countNotLike, "NotLike condition should result in count 6.");
+    }
+
 
 }

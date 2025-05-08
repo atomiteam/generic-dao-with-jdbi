@@ -22,6 +22,7 @@ public class Filtering {
     private Long offset;
     private Long limit;
     private LogicalOperator operator = LogicalOperator.AND;
+    private String sorting;
     
     /**
      * Private constructor to enforce the use of the factory method `create`.
@@ -117,6 +118,13 @@ public class Filtering {
         return this;
     }
     
+    public Filtering withSorting(String name, Sorting sorting) {
+        if (name == null) {
+            throw new IllegalArgumentException("Name cannot be null");
+        }
+        this.sorting = name + " " + sorting.name();
+        return this;
+    }   
     
     public LogicalOperator getOperator() {
         return operator;
@@ -125,6 +133,10 @@ public class Filtering {
     public Filtering withOperator(LogicalOperator operator) {
         this.operator = operator;
         return this;
+    }
+
+    public String getSorting() {
+        return sorting;
     }
 
 }
