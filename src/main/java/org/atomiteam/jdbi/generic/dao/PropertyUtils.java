@@ -35,7 +35,8 @@ public class PropertyUtils {
             // Find and invoke the setter method
             Method setter = type.getMethod(setterName, field.getType());
             setter.invoke(instance, value);
-        } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+        } catch (
+Exception e) {
             // If setter doesn't exist or fails, fall back to setting the field directly
             try {
                 field.setAccessible(true); // Ensure the field is accessible

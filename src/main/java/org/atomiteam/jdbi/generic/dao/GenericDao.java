@@ -90,14 +90,14 @@ public class GenericDao<T extends Entity> {
         String whereClause = buildWhereClause(conditions);
 
         StringBuilder pagination = new StringBuilder();
+        if (conditions.getSorting() != null) {
+            pagination.append(" ORDER BY ").append(conditions.getSorting());
+        }
         if (conditions.getLimit() != null) {
             pagination.append(" LIMIT ").append(conditions.getLimit());
         }
         if (conditions.getOffset() != null) {
             pagination.append(" OFFSET ").append(conditions.getOffset());
-        }
-        if (conditions.getSorting() != null) {
-            pagination.append(" ORDER BY ").append(conditions.getSorting());
         }
 
         String sql = String.format("SELECT * FROM %s %s %s", table, whereClause, pagination);
