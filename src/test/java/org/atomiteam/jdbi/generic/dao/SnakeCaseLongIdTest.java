@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import org.jdbi.v3.core.Jdbi;
 import org.jdbi.v3.core.h2.H2DatabasePlugin;
@@ -63,7 +64,7 @@ class SnakeCaseLongIdTest {
         update.setDisplayLabel("New");
         assertEquals(1, dao.update(update));
 
-        SnakeLongRecord loaded = dao.getById(2001L).orElseThrow();
+        SnakeLongRecord loaded = dao.getById(2001L).get();
         assertEquals("after", loaded.getSampleColumn());
         assertEquals(10L, loaded.getCreatedAt());
         assertEquals("New", loaded.getDisplayLabel());
@@ -94,7 +95,7 @@ class SnakeCaseLongIdTest {
                 .withSorting("createdAt", Sorting.ASC));
 
         assertEquals(List.of(4002L, 4003L, 4001L),
-                sorted.stream().map(SnakeLongRecord::getId).toList());
+                sorted.stream().map(SnakeLongRecord::getId).collect(Collectors.toList()));
     }
 
     @Test
