@@ -8,8 +8,6 @@ import java.util.stream.Collectors;
 
 /**
  * A class for building and managing a collection of filters to be applied in queries.
- * Filters can be added using methods like {@code eq}, {@code notEq}, {@code like},
- * {@code notLike}, {@code in}, and {@code notIn}.
  *
  * <p>Filter and sorting names represent Java entity property names, not arbitrary SQL.
  * {@link GenericDao} validates that each supplied name is a mapped property of the
@@ -31,57 +29,50 @@ public class Filtering {
     }
 
     public Filtering eq(String name, Object value) {
-        this.filters.add(Filter.create()
-                .withName(name)
-                .withOperator(Operator.Eq)
-                .withValue(value));
+        this.filters.add(filter(name, Operator.Eq, value));
         return this;
     }
 
     public Filtering notEq(String name, Object value) {
-        this.filters.add(Filter.create()
-                .withName(name)
-                .withOperator(Operator.NotEq)
-                .withValue(value));
+        this.filters.add(filter(name, Operator.NotEq, value));
         return this;
     }
 
     public Filtering like(String name, Object value) {
-        this.filters.add(Filter.create()
-                .withName(name)
-                .withOperator(Operator.Like)
-                .withValue(value));
+        this.filters.add(filter(name, Operator.Like, value));
         return this;
     }
 
     public Filtering notLike(String name, Object value) {
-        this.filters.add(Filter.create()
-                .withName(name)
-                .withOperator(Operator.NotLike)
-                .withValue(value));
+        this.filters.add(filter(name, Operator.NotLike, value));
         return this;
     }
 
     public Filtering in(String name, Collection<?> values) {
-        this.filters.add(Filter.create()
-                .withName(name)
-                .withOperator(Operator.In)
-                .withValue(values));
+        this.filters.add(filter(name, Operator.In, values));
         return this;
     }
 
     public Filtering notIn(String name, Collection<?> values) {
-        this.filters.add(Filter.create()
-                .withName(name)
-                .withOperator(Operator.NotIn)
-                .withValue(values));
+        this.filters.add(filter(name, Operator.NotIn, values));
+        return this;
+    }
+
+    public Filtering isNull(String name) {
+        this.filters.add(filter(name, Operator.IsNull, null));
+        return this;
+    }
+
+    public Filtering isNotNull(String name) {
+        this.filters.add(filter(name, Operator.IsNotNull, null));
         return this;
     }
 
     public List<Filter> filterings() {
         return filters.stream()
-                .filter(f -> Objects.nonNull(f.getValue()) && Objects.nonNull(f.getName()) &&
-                        !f.getName().isBlank())
+                .filter(f -> Objects.nonNull(f.getName()) && !f.getName().isBlank())
+                .filter(f -> f.getOperator() == Operator.IsNull || f.getOperator() == Operator.IsNotNull
+                        || Objects.nonNull(f.getValue()))
                 .collect(Collectors.toList());
     }
 
@@ -131,5 +122,9 @@ public class Filtering {
 
     public String getSorting() {
         return sorting;
+    }
+
+    private Filter filter(String name, Operator operator, Object value) {
+        return Filter.create().withName(name).withOperator(operator).withValue(value);
     }
 }
