@@ -19,16 +19,7 @@ import org.jdbi.v3.core.statement.StatementContext;
 
 import com.google.gson.Gson;
 
-/**
- * Generic CRUD DAO for arbitrary Java POJOs backed by JDBI.
- *
- * <p>Entities may optionally extend {@link BaseEntity}, {@link Entity}, or
- * {@link LongEntity}, but inheritance from a persistence base class is not
- * required. A conventional property named {@code id} is used as the primary
- * key when primary-key operations are requested.</p>
- *
- * @param <T> entity type
- */
+/** Generic CRUD DAO for arbitrary Java POJOs backed by JDBI. */
 public class GenericDao<T> {
 
     private static final String SQL_IDENTIFIER_PATTERN = "[A-Za-z_][A-Za-z0-9_]*";
@@ -39,16 +30,10 @@ public class GenericDao<T> {
     private final ColumnNaming columnNaming;
     private final Gson gson = new Gson();
 
-    /**
-     * Creates a DAO using legacy identity column naming.
-     */
     public GenericDao(Jdbi jdbi, Class<T> klazz, String table) {
         this(jdbi, klazz, table, ColumnNaming.IDENTITY);
     }
 
-    /**
-     * Creates a DAO using the requested Java-property to database-column naming strategy.
-     */
     public GenericDao(Jdbi jdbi, Class<T> klazz, String table, ColumnNaming columnNaming) {
         this.jdbi = Objects.requireNonNull(jdbi, "jdbi");
         this.klazz = Objects.requireNonNull(klazz, "klazz");
@@ -57,13 +42,6 @@ public class GenericDao<T> {
         validateMappedColumns();
     }
 
-    /**
-     * Inserts an entity and returns the same instance.
-     *
-     * <p>If an {@code id} property exists and is null, it is omitted from the
-     * INSERT and the generated database key is read back and assigned to the
-     * entity. If the id is already set, it is inserted normally.</p>
-     */
     public T insert(T entity) {
         Objects.requireNonNull(entity, "entity");
         try {
@@ -73,7 +51,6 @@ public class GenericDao<T> {
             if (generatedId) {
                 data.remove("id");
             }
-
             if (data.isEmpty()) {
                 throw new IllegalArgumentException("Entity has no non-null values to insert into table " + table);
             }
@@ -82,7 +59,6 @@ public class GenericDao<T> {
             List<String> columns = properties.stream().map(this::columnName).collect(Collectors.toList());
             List<String> placeholders = properties.stream().map(this::bindName).map(property -> ":" + property)
                     .collect(Collectors.toList());
-
             String sql = String.format("INSERT INTO %s (%s) VALUES (%s)", table,
                     String.join(", ", columns), String.join(", ", placeholders));
 
@@ -104,26 +80,17 @@ public class GenericDao<T> {
         }
     }
 
-    /**
-     * Retrieves an entity by its primary key. String and numeric keys are supported.
-     */
     public Optional<T> getById(Object id) {
         String sql = String.format("SELECT * FROM %s WHERE %s = ?", table, columnName("id"));
         return jdbi.withHandle(handle -> handle.createQuery(sql).bind(0, id)
                 .map(new JsonRowMapper<>(klazz, columnNaming)).findFirst());
     }
 
-    /**
-     * Retrieves the first entity matching all supplied Java-property values.
-     */
     public Optional<T> get(Map<String, ?> values) {
         List<T> items = list(values);
         return items.stream().findFirst();
     }
 
-    /**
-     * Retrieves all entities matching all supplied Java-property values.
-     */
     public List<T> list(Map<String, ?> values) {
         Filtering filtering = Filtering.create();
         if (values != null) {
@@ -166,9 +133,6 @@ public class GenericDao<T> {
         });
     }
 
-    /**
-     * Deletes by primary-key value or by entity instance.
-     */
     public int delete(Object idOrEntity) {
         Object id = idOrEntity;
         if (idOrEntity != null && klazz.isInstance(idOrEntity)) {
@@ -182,18 +146,41 @@ public class GenericDao<T> {
         return jdbi.withHandle(handle -> handle.createUpdate(sql).bind(0, finalId).execute());
     }
 
-    /**
-     * Updates all non-null properties except id and returns the affected row count.
-     */
+    /** Updates all non-null properties except id. */
     public int update(T target) {
         Objects.requireNonNull(target, "target");
         Object id = getIdValue(target);
         if (id == null) {
             throw new IllegalArgumentException("Entity id cannot be null when updating table " + table);
         }
-
         Map<String, Object> changes = new LinkedHashMap<>(toChanges(target));
         changes.remove("id");
+        return update(id, changes);
+    }
+
+    /**
+     * Patch update by Java property name. Unlike {@link #update(Object)}, entries
+     * in this map are explicit: a null value writes SQL NULL. This is useful for
+     * callers that must distinguish "not supplied" from "clear this column".
+     */
+    public int update(Object id, Map<String, ?> requestedChanges) {
+        if (id == null) {
+            throw new IllegalArgumentException("Entity id cannot be null when updating table " + table);
+        }
+        Objects.requireNonNull(requestedChanges, "changes");
+
+        Map<String, Object> changes = new LinkedHashMap<>();
+        requestedChanges.forEach((property, value) -> {
+            if ("id".equals(property)) {
+                return;
+            }
+            Field field = requireMappedField(property);
+            Object storedValue = value;
+            if (value != null && field.isAnnotationPresent(Json.class)) {
+                storedValue = gson.toJson(value);
+            }
+            changes.put(property, storedValue);
+        });
         if (changes.isEmpty()) {
             return 0;
         }
@@ -201,11 +188,14 @@ public class GenericDao<T> {
         String assignments = changes.keySet().stream()
                 .map(property -> String.format("%s = :%s", columnName(property), bindName(property)))
                 .collect(Collectors.joining(", "));
-        String sql = String.format("UPDATE %s SET %s WHERE %s = :id", table,
+        String sql = String.format("UPDATE %s SET %s WHERE %s = :_genericDaoId", table,
                 assignments, columnName("id"));
 
-        return jdbi.withHandle(handle -> handle.createUpdate(sql)
-                .bind("id", id).bindMap(changes).execute());
+        return jdbi.withHandle(handle -> {
+            org.jdbi.v3.core.statement.Update update = handle.createUpdate(sql).bind("_genericDaoId", id);
+            changes.forEach(update::bind);
+            return update.execute();
+        });
     }
 
     public T updateAndReturn(T target) {
@@ -226,9 +216,7 @@ public class GenericDao<T> {
                     field.setAccessible(true);
                     Object value = field.get(entity);
                     if (value != null) {
-                        changes.put(field.getName(), field.isAnnotationPresent(Json.class)
-                                ? gson.toJson(value)
-                                : value);
+                        changes.put(field.getName(), field.isAnnotationPresent(Json.class) ? gson.toJson(value) : value);
                     }
                 }
                 currentClass = currentClass.getSuperclass();
@@ -240,8 +228,7 @@ public class GenericDao<T> {
     }
 
     private Object getIdValue(T entity) {
-        Field idField = requireMappedField("id");
-        return getFieldValue(entity, idField);
+        return getFieldValue(entity, requireMappedField("id"));
     }
 
     private static Object getFieldValue(Object entity, Field field) {
@@ -254,38 +241,44 @@ public class GenericDao<T> {
     }
 
     private String buildWhereClause(Filtering conditions) {
-        if (conditions.filterings().isEmpty()) {
+        List<Filter> filters = conditions.filterings();
+        if (filters.isEmpty()) {
             return "";
         }
 
-        String clause = conditions.filterings().stream()
-                .map(filter -> {
-                    String property = requireMappedProperty(filter.getName());
-                    String column = columnName(property);
-                    String parameter = bindName(property);
-                    switch (filter.getOperator()) {
-                        case In:
-                            return String.format("%s IN (<%s>)", column, parameter);
-                        case NotIn:
-                            return String.format("%s NOT IN (<%s>)", column, parameter);
-                        case Like:
-                            return String.format("%s LIKE :%s", column, parameter);
-                        case NotLike:
-                            return String.format("%s NOT LIKE :%s", column, parameter);
-                        case Eq:
-                            return String.format("%s = :%s", column, parameter);
-                        case NotEq:
-                            return String.format("%s != :%s", column, parameter);
-                        default:
-                            throw new IllegalArgumentException("Unsupported operator: " + filter.getOperator());
-                    }
-                })
-                .collect(Collectors.joining(" " + conditions.getOperator().name() + " "));
+        String clause = filters.stream().map(filter -> {
+            String property = requireMappedProperty(filter.getName());
+            String column = columnName(property);
+            String parameter = bindName(property);
+            switch (filter.getOperator()) {
+                case In:
+                    return String.format("%s IN (<%s>)", column, parameter);
+                case NotIn:
+                    return String.format("%s NOT IN (<%s>)", column, parameter);
+                case Like:
+                    return String.format("%s LIKE :%s", column, parameter);
+                case NotLike:
+                    return String.format("%s NOT LIKE :%s", column, parameter);
+                case Eq:
+                    return String.format("%s = :%s", column, parameter);
+                case NotEq:
+                    return String.format("%s != :%s", column, parameter);
+                case IsNull:
+                    return column + " IS NULL";
+                case IsNotNull:
+                    return column + " IS NOT NULL";
+                default:
+                    throw new IllegalArgumentException("Unsupported operator: " + filter.getOperator());
+            }
+        }).collect(Collectors.joining(" " + conditions.getOperator().name() + " "));
         return "WHERE " + clause;
     }
 
     private void bindQueryParameters(Query query, Filtering conditions) {
         for (Filter filter : conditions.filterings()) {
+            if (filter.getOperator() == Operator.IsNull || filter.getOperator() == Operator.IsNotNull) {
+                continue;
+            }
             String key = bindName(requireMappedProperty(filter.getName()));
             Object value = filter.getValue();
             if (value instanceof Collection<?>) {
@@ -301,17 +294,14 @@ public class GenericDao<T> {
         if (trimmed.isEmpty()) {
             throw new IllegalArgumentException("Sorting cannot be empty");
         }
-
         String[] parts = trimmed.split("\\s+");
         if (parts.length < 1 || parts.length > 2) {
             throw new IllegalArgumentException("Invalid sorting expression: " + sorting);
         }
-
         String property = requireMappedProperty(parts[0]);
         if (parts.length == 1) {
             return columnName(property);
         }
-
         String direction = parts[1].toUpperCase(java.util.Locale.ROOT);
         if (!"ASC".equals(direction) && !"DESC".equals(direction)) {
             throw new IllegalArgumentException("Invalid sorting direction: " + parts[1]);
