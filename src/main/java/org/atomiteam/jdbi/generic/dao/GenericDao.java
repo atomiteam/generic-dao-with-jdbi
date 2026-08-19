@@ -1,5 +1,6 @@
 package org.atomiteam.jdbi.generic.dao;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,12 +45,16 @@ public class GenericDao<T> {
         Object currentId = codec.getId(entity);
         boolean generatedId = currentId == null;
         if (generatedId) data.remove("id");
-        if (data.isEmpty()) throw new IllegalArgumentException("Entity has no non-null values to insert into table " + table);
+        if (data.isEmpty()) {
+            throw new IllegalArgumentException("Entity has no non-null values to insert into table " + table);
+        }
 
-        List<String> properties = data.keySet().stream().collect(Collectors.toList());
+        List<String> properties = new ArrayList<>(data.keySet());
         List<String> columns = properties.stream().map(this::columnName).collect(Collectors.toList());
-        String placeholders = properties.stream().map(this::bindName).map(p -> ":" + p).collect(Collectors.joining(", "));
-        String sql = String.format("INSERT INTO %s (%s) VALUES (%s)", table, String.join(", ", columns), placeholders);
+        String placeholders = properties.stream().map(this::bindName).map(p -> ":" + p)
+                .collect(Collectors.joining(", "));
+        String sql = String.format("INSERT INTO %s (%s) VALUES (%s)", table,
+                String.join(", ", columns), placeholders);
 
         if (generatedId) {
             Object generated = jdbi.withHandle(handle -> handle.createUpdate(sql)
@@ -67,7 +72,11 @@ public class GenericDao<T> {
     public Optional<T> getById(Object id) {
         if (id == null) return Optional.empty();
         String sql = String.format("SELECT * FROM %s WHERE %s = :id", table, columnName("id"));
-        return jdbi.withHandle(handle -> handle.createQuery(sql).bind("id", id).mapToMap().findFirst().map(codec::fromStorage));
+        return jdbi.withHandle(handle -> handle.createQuery(sql)
+                .bind("id", id)
+                .mapToMap()
+                .findFirst()
+                .map(codec::fromStorage));
     }
 
     public Optional<T> get(Map<String, ?> values) {
@@ -119,7 +128,9 @@ public class GenericDao<T> {
 
     public int delete(Filtering conditions) {
         Objects.requireNonNull(conditions, "conditions");
-        if (conditions.filterings().isEmpty()) throw new IllegalArgumentException("Refusing unfiltered delete from " + table);
+        if (conditions.filterings().isEmpty()) {
+            throw new IllegalArgumentException("Refusing unfiltered delete from " + table);
+        }
         String sql = String.format("DELETE FROM %s %s", table, buildWhereClause(conditions));
         return jdbi.withHandle(handle -> {
             org.jdbi.v3.core.statement.Update update = handle.createUpdate(sql);
@@ -154,7 +165,8 @@ public class GenericDao<T> {
         String assignments = changes.keySet().stream()
                 .map(property -> columnName(property) + " = :" + bindName(property))
                 .collect(Collectors.joining(", "));
-        String sql = String.format("UPDATE %s SET %s WHERE %s = :_genericDaoId", table, assignments, columnName("id"));
+        String sql = String.format("UPDATE %s SET %s WHERE %s = :_genericDaoId", table,
+                assignments, columnName("id"));
         Map<String, Object> finalChanges = changes;
         return jdbi.withHandle(handle -> {
             org.jdbi.v3.core.statement.Update update = handle.createUpdate(sql).bind("_genericDaoId", id);
@@ -163,10 +175,18 @@ public class GenericDao<T> {
         });
     }
 
-    public T updateAndReturn(T target) { update(target); return target; }
+    public T updateAndReturn(T target) {
+        update(target);
+        return target;
+    }
 
-    public T fromStorage(Map<String, Object> values) { return codec.fromStorage(values); }
-    public Map<String, Object> toStorage(T entity, boolean includeNulls) { return codec.toStorage(entity, includeNulls); }
+    public T fromStorage(Map<String, Object> values) {
+        return codec.fromStorage(values);
+    }
+
+    public Map<String, Object> toStorage(T entity, boolean includeNulls) {
+        return codec.toStorage(entity, includeNulls);
+    }
 
     private Map<String, Object> sanitized(Map<String, Object> input, boolean allowNull) {
         Map<String, Object> output = new LinkedHashMap<>();
@@ -183,27 +203,55 @@ public class GenericDao<T> {
     private String buildWhereClause(Filtering conditions) {
         List<Filter> filters = conditions.filterings();
         if (filters.isEmpty()) return "";
-        String clause = filters.stream().map(filter -> {
+
+        List<String> clauses = new ArrayList<>();
+        for (int i = 0; i < filters.size(); i++) {
+            Filter filter = filters.get(i);
             String property = requireMappedProperty(filter.getName());
             String column = columnName(property);
-            String parameter = bindName(property);
+            String parameter = filterParameter(i);
             switch (filter.getOperator()) {
-                case In: return column + " IN (<" + parameter + ">)";
-                case NotIn: return column + " NOT IN (<" + parameter + ">)";
-                case Like: return column + " LIKE :" + parameter;
-                case NotLike: return column + " NOT LIKE :" + parameter;
-                case Eq: return column + " = :" + parameter;
-                case NotEq: return column + " != :" + parameter;
-                case Lt: return column + " < :" + parameter;
-                case Lte: return column + " <= :" + parameter;
-                case Gt: return column + " > :" + parameter;
-                case Gte: return column + " >= :" + parameter;
-                case IsNull: return column + " IS NULL";
-                case IsNotNull: return column + " IS NOT NULL";
-                default: throw new IllegalArgumentException("Unsupported operator: " + filter.getOperator());
+                case In:
+                    clauses.add(column + " IN (<" + parameter + ">)");
+                    break;
+                case NotIn:
+                    clauses.add(column + " NOT IN (<" + parameter + ">)");
+                    break;
+                case Like:
+                    clauses.add(column + " LIKE :" + parameter);
+                    break;
+                case NotLike:
+                    clauses.add(column + " NOT LIKE :" + parameter);
+                    break;
+                case Eq:
+                    clauses.add(column + " = :" + parameter);
+                    break;
+                case NotEq:
+                    clauses.add(column + " != :" + parameter);
+                    break;
+                case Lt:
+                    clauses.add(column + " < :" + parameter);
+                    break;
+                case Lte:
+                    clauses.add(column + " <= :" + parameter);
+                    break;
+                case Gt:
+                    clauses.add(column + " > :" + parameter);
+                    break;
+                case Gte:
+                    clauses.add(column + " >= :" + parameter);
+                    break;
+                case IsNull:
+                    clauses.add(column + " IS NULL");
+                    break;
+                case IsNotNull:
+                    clauses.add(column + " IS NOT NULL");
+                    break;
+                default:
+                    throw new IllegalArgumentException("Unsupported operator: " + filter.getOperator());
             }
-        }).collect(Collectors.joining(" " + conditions.getOperator().name() + " "));
-        return "WHERE " + clause;
+        }
+        return "WHERE " + String.join(" " + conditions.getOperator().name() + " ", clauses);
     }
 
     private void bindQueryParameters(Query query, Filtering conditions) {
@@ -213,7 +261,8 @@ public class GenericDao<T> {
         }, conditions);
     }
 
-    private void bindStatementParameters(org.jdbi.v3.core.statement.SqlStatement<?> statement, Filtering conditions) {
+    private void bindStatementParameters(org.jdbi.v3.core.statement.SqlStatement<?> statement,
+            Filtering conditions) {
         bindParameters((name, value) -> {
             if (value instanceof Collection<?>) statement.bindList(name, (Collection<?>) value);
             else statement.bind(name, value);
@@ -221,11 +270,19 @@ public class GenericDao<T> {
     }
 
     private void bindParameters(java.util.function.BiConsumer<String, Object> binder, Filtering conditions) {
-        for (Filter filter : conditions.filterings()) {
-            if (filter.getOperator() == Operator.IsNull || filter.getOperator() == Operator.IsNotNull) continue;
+        List<Filter> filters = conditions.filterings();
+        for (int i = 0; i < filters.size(); i++) {
+            Filter filter = filters.get(i);
+            if (filter.getOperator() == Operator.IsNull || filter.getOperator() == Operator.IsNotNull) {
+                continue;
+            }
             String property = requireMappedProperty(filter.getName());
-            binder.accept(bindName(property), codec.toStorageValue(property, filter.getValue()));
+            binder.accept(filterParameter(i), codec.toStorageValue(property, filter.getValue()));
         }
+    }
+
+    private String filterParameter(int index) {
+        return "_f" + index;
     }
 
     private String mapSorting(Filtering.SortClause clause) {
@@ -239,15 +296,20 @@ public class GenericDao<T> {
     }
 
     private String requireMappedProperty(String propertyName) {
-        if (propertyName == null || propertyName.isBlank()) throw new IllegalArgumentException("Property name cannot be blank");
+        if (propertyName == null || propertyName.isBlank()) {
+            throw new IllegalArgumentException("Property name cannot be blank");
+        }
         requireIdentifier(propertyName, "property");
         if (!codec.isMappedProperty(propertyName)) {
-            throw new IllegalArgumentException("Unknown or unmapped property '" + propertyName + "' for entity " + klazz.getName());
+            throw new IllegalArgumentException("Unknown or unmapped property '" + propertyName
+                    + "' for entity " + klazz.getName());
         }
         return propertyName;
     }
 
-    private String bindName(String propertyName) { return requireIdentifier(requireMappedProperty(propertyName), "bind property"); }
+    private String bindName(String propertyName) {
+        return requireIdentifier(requireMappedProperty(propertyName), "bind property");
+    }
 
     private static String requireIdentifier(String value, String description) {
         if (value == null || !value.matches(SQL_IDENTIFIER_PATTERN)) {
