@@ -2,6 +2,7 @@ package org.atomiteam.jdbi.generic.dao;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -96,6 +97,35 @@ class SnakeCaseLongIdTest {
 
         assertEquals(List.of(4002L, 4003L, 4001L),
                 sorted.stream().map(SnakeLongRecord::getId).collect(Collectors.toList()));
+    }
+
+    @Test
+    void rejectsUnknownFilterPropertyBeforeExecutingSql() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> dao.filter(Filtering.create().eq("doesNotExist", "x")));
+        assertTrue(error.getMessage().contains("Unknown or unmapped property"));
+    }
+
+    @Test
+    void rejectsSqlInjectionInFilterPropertyBeforeExecutingSql() {
+        assertThrows(IllegalArgumentException.class,
+                () -> dao.filter(Filtering.create().eq("sampleColumn OR 1=1", "x")));
+    }
+
+    @Test
+    void rejectsSqlInjectionInSortingPropertyBeforeExecutingSql() {
+        assertThrows(IllegalArgumentException.class,
+                () -> dao.filter(Filtering.create().withSorting("createdAt DESC; DROP TABLE snake_long_record", Sorting.ASC)));
+
+        // The rejected expression must not have reached the database.
+        assertEquals(0, dao.count(Filtering.create()));
+    }
+
+    @Test
+    void rejectsInvalidTableIdentifierAtConstructionTime() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new GenericDao<>(jdbi, SnakeLongRecord.class,
+                        "snake_long_record; DROP TABLE snake_long_record", ColumnNaming.SNAKE_CASE));
     }
 
     @Test
