@@ -36,7 +36,6 @@ public class GenericDao<T> {
         this.table = requireIdentifier(table, "table");
         this.columnNaming = Objects.requireNonNull(columnNaming, "columnNaming");
         this.codec = Objects.requireNonNull(codec, "codec");
-        requireMappedProperty("id");
     }
 
     public T insert(T entity) {
