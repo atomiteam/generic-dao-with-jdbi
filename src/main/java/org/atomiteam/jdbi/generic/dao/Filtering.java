@@ -8,13 +8,12 @@ import java.util.stream.Collectors;
 
 /**
  * A class for building and managing a collection of filters to be applied in queries.
- * Filters can be added using methods like `eq`, `notEq`, `like`, `notLike`, `in`, and `notIn`.
- * The filters are stored in a list and can be retrieved using the `filterings` method.
+ * Filters can be added using methods like {@code eq}, {@code notEq}, {@code like},
+ * {@code notLike}, {@code in}, and {@code notIn}.
  *
- * ⚠ WARNING: The `name` parameter is used to generate SQL statements. **DO NOT** accept `name` as 
- * user input directly, as it may lead to SQL injection vulnerabilities. The values are safe to use, 
- * but not the field names. Developers are responsible for ensuring the safe usage of this class. 
- * Improper usage can risk the security of their application.
+ * <p>Filter and sorting names represent Java entity property names, not arbitrary SQL.
+ * {@link GenericDao} validates that each supplied name is a mapped property of the
+ * entity before generating SQL. Values are always passed as JDBI bind parameters.</p>
  */
 public class Filtering {
 
@@ -23,18 +22,10 @@ public class Filtering {
     private Long limit;
     private LogicalOperator operator = LogicalOperator.AND;
     private String sorting;
-    
-    /**
-     * Private constructor to enforce the use of the factory method `create`.
-     */
+
     private Filtering() {
     }
 
-    /**
-     * Creates a new instance of Filtering.
-     *
-     * @return a new Filtering instance.
-     */
     public static Filtering create() {
         return new Filtering();
     }
@@ -89,7 +80,7 @@ public class Filtering {
 
     public List<Filter> filterings() {
         return filters.stream()
-                .filter(f -> Objects.nonNull(f.getValue()) && Objects.nonNull(f.getName()) && 
+                .filter(f -> Objects.nonNull(f.getValue()) && Objects.nonNull(f.getName()) &&
                         !f.getName().isBlank())
                 .collect(Collectors.toList());
     }
@@ -117,26 +108,28 @@ public class Filtering {
         this.limit = limit;
         return this;
     }
-    
+
     public Filtering withSorting(String name, Sorting sorting) {
-        if (name == null) {
-            throw new IllegalArgumentException("Name cannot be null");
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("Name cannot be null or blank");
+        }
+        if (sorting == null) {
+            throw new IllegalArgumentException("Sorting cannot be null");
         }
         this.sorting = name + " " + sorting.name();
         return this;
-    }   
-    
+    }
+
     public LogicalOperator getOperator() {
         return operator;
     }
 
     public Filtering withOperator(LogicalOperator operator) {
-        this.operator = operator;
+        this.operator = Objects.requireNonNull(operator, "operator");
         return this;
     }
 
     public String getSorting() {
         return sorting;
     }
-
 }
