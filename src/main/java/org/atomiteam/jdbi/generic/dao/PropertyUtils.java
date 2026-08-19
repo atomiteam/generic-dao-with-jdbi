@@ -36,6 +36,7 @@ public class PropertyUtils {
         return null;
     }
 
+    @SuppressWarnings({ "unchecked", "rawtypes" })
     static Object convertValue(Object value, Class<?> targetType) {
         if (value == null || targetType.isInstance(value)) {
             return value;
@@ -48,6 +49,12 @@ public class PropertyUtils {
             if (targetType == Byte.class || targetType == byte.class) return number.byteValue();
             if (targetType == Double.class || targetType == double.class) return number.doubleValue();
             if (targetType == Float.class || targetType == float.class) return number.floatValue();
+        }
+        if (targetType.isEnum()) {
+            return Enum.valueOf((Class<? extends Enum>) targetType, String.valueOf(value));
+        }
+        if (targetType == String.class) {
+            return String.valueOf(value);
         }
         return value;
     }
