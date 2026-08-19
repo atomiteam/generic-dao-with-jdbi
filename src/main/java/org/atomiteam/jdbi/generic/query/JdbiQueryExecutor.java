@@ -102,8 +102,7 @@ public final class JdbiQueryExecutor {
         return jdbi.withHandle(handle -> {
             Query statement = handle.createQuery(query.countSql());
             bind(statement, query.countBindings());
-            Number value = statement.mapTo(Number.class).one();
-            return value == null ? 0L : value.longValue();
+            return statement.map((rs, ctx) -> rs.getLong(1)).one();
         });
     }
 
