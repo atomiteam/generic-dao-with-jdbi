@@ -1,5 +1,5 @@
 package org.atomiteam.jdbi.generic.dao;
 
 public enum Operator {
-    Like, NotLike, In, NotIn, Eq, NotEq, IsNull, IsNotNull
+    Like, NotLike, In, NotIn, Eq, NotEq, Lt, Lte, Gt, Gte, IsNull, IsNotNull
 }
