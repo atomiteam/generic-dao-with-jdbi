@@ -1,6 +1,6 @@
 # generic-dao-with-jdbi
 
-Generic CRUD access for JDBC databases using JDBI.
+Generic CRUD and query access for JDBC databases using JDBI.
 
 ## Version 2.0 highlights
 
@@ -15,6 +15,7 @@ Version 2.0 adds support for:
 - Java-property based filtering and sorting when snake-case mapping is enabled.
 - Map-based `get` and `list` convenience methods.
 - Numeric and enum conversion during row mapping.
+- A reusable JDBI-native query layer for joins, projections, searches and reports.
 
 ## Basic POJO example
 
@@ -23,21 +24,10 @@ public class Account {
     private Long id;
     private String displayName;
 
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public String getDisplayName() {
-        return displayName;
-    }
-
-    public void setDisplayName(String displayName) {
-        this.displayName = displayName;
-    }
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getDisplayName() { return displayName; }
+    public void setDisplayName(String displayName) { this.displayName = displayName; }
 }
 ```
 
@@ -81,6 +71,57 @@ List<Account> accounts = dao.filter(
 );
 ```
 
+Use `GenericDao` + `Filtering` for normal single-table entity access.
+
+## Custom joins and projections
+
+Use `JdbiQuery` + `JdbiQueryExecutor` when the query is a join, projection, search or report instead of creating another application-specific SQL builder.
+
+```java
+JdbiQuery query = JdbiQuery.select(
+        "select a.id, a.display_name from account a join tenant t on t.id = a.tenant_id")
+    .eqIfPresent("t.id", tenantId)
+    .likeIfPresent("a.display_name", namePattern)
+    .orderBy("a.id", Sorting.DESC)
+    .page(offset, limit);
+
+JdbiQueryExecutor executor = new JdbiQueryExecutor(jdbi);
+QueryPage<Account> page = new QueryPage<>(
+    executor.pojos(query, Account.class, ColumnNaming.SNAKE_CASE),
+    executor.count(query));
+```
+
+The query layer provides:
+
+- unique named bindings for dynamic values;
+- `IN` / `NOT IN` collection expansion through JDBI;
+- `eq`, `ne`, `lt`, `lte`, `gt`, `gte`, `like`, null checks and optional predicates;
+- named bindings for stable SQL resources with `:name` placeholders;
+- pagination without application-specific `LIMIT/OFFSET` concatenation;
+- exact total counts generated from the same query specification;
+- scalar, map, POJO and custom-function mapping;
+- standard POJO mapping through the same `ReflectionEntityCodec` used by `GenericDao`;
+- client sorting through an explicit allow-list using `orderByAllowed`.
+
+For a nested/domain projection, keep only the domain mapping in the application:
+
+```java
+List<OrderSummary> items = executor.list(query, row ->
+    new OrderSummary(
+        ((Number) row.get("order_id")).longValue(),
+        (String) row.get("customer_name")));
+```
+
+Do not concatenate request values into `where`, `order by`, `limit`, or `offset`. For request-controlled sorting, map public sort keys to trusted SQL expressions:
+
+```java
+Map<String, String> allowedSorts = new LinkedHashMap<>();
+allowedSorts.put("id", "a.id");
+allowedSorts.put("name", "a.display_name");
+
+query.orderByAllowed(requestedSort, allowedSorts, "id", Sorting.DESC);
+```
+
 ## Map compatibility helpers
 
 ```java
@@ -102,6 +143,14 @@ int changed = dao.update(account);
 Account sameAccount = dao.updateAndReturn(account);
 ```
 
+For an explicit patch, including writing a SQL NULL, use the map update API:
+
+```java
+Map<String, Object> changes = new HashMap<>();
+changes.put("displayName", null);
+dao.update(account.getId(), changes);
+```
+
 `delete` accepts either an ID value or an entity instance with a populated `id` property.
 
 ```java
@@ -111,13 +160,18 @@ dao.delete(account);
 
 ## Spring / DataSource integration
 
-The library itself does not require Spring. In Spring applications, create one JDBI instance from the application's existing `DataSource` and inject it into DAOs:
+The library itself does not require Spring. In Spring applications, create one JDBI instance from the application's existing `DataSource` and optionally expose one query executor:
 
 ```java
 @Bean
 public Jdbi jdbi(DataSource dataSource) {
     return Jdbi.create(dataSource);
 }
+
+@Bean
+public JdbiQueryExecutor jdbiQueryExecutor(Jdbi jdbi) {
+    return new JdbiQueryExecutor(jdbi);
+}
 ```
 
-This allows JDBI to use the application's existing connection pool and database configuration.
+This allows both `GenericDao` and the custom query layer to use the application's existing connection pool and database configuration.
