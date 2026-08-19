@@ -11,10 +11,16 @@ import com.google.gson.Gson;
 public class ReflectionEntityCodec<T> implements EntityCodec<T> {
 
     private final Class<T> type;
+    private final ColumnNaming columnNaming;
     private final Gson gson = new Gson();
 
     public ReflectionEntityCodec(Class<T> type) {
+        this(type, ColumnNaming.IDENTITY);
+    }
+
+    public ReflectionEntityCodec(Class<T> type, ColumnNaming columnNaming) {
         this.type = type;
+        this.columnNaming = columnNaming;
     }
 
     @Override
@@ -53,11 +59,13 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
                     if (!isPersistent(field)) {
                         continue;
                     }
-                    String property = field.getName();
-                    if (!values.containsKey(property)) {
+                    String column = field.isAnnotationPresent(Column.class)
+                            ? field.getAnnotation(Column.class).value()
+                            : columnNaming.toColumnName(field.getName());
+                    if (!values.containsKey(column)) {
                         continue;
                     }
-                    Object value = values.get(property);
+                    Object value = values.get(column);
                     if (field.isAnnotationPresent(Json.class) && value != null) {
                         value = gson.fromJson(String.valueOf(value), field.getType());
                     }
@@ -78,11 +86,11 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
     }
 
     @Override
-    public String columnName(String propertyName, ColumnNaming columnNaming) {
+    public String columnName(String propertyName, ColumnNaming requestedNaming) {
         Field field = requireField(propertyName);
         return field.isAnnotationPresent(Column.class)
                 ? field.getAnnotation(Column.class).value()
-                : columnNaming.toColumnName(propertyName);
+                : requestedNaming.toColumnName(propertyName);
     }
 
     @Override
