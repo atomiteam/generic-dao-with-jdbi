@@ -51,6 +51,8 @@ public class AccountDao extends GenericDao<Account> {
 
 With snake-case naming enabled, `displayName` maps to `display_name`.
 
+The existing `Entity`, `LongEntity`, and `BaseEntity<ID>` classes remain available as convenience base classes, but using them is optional.
+
 ## Generated Long IDs
 
 If the POJO contains an `id` property and its value is `null`, `insert` omits the id from the INSERT, reads the generated database key, and assigns it back to the same object.
@@ -62,6 +64,8 @@ account.setDisplayName("Example");
 dao.insert(account);
 Long generatedId = account.getId();
 ```
+
+`insert` also returns the same entity instance, so callers that want the persisted object can use the return value while existing callers may simply ignore it.
 
 If the ID is already populated, it is inserted normally.
 
@@ -86,6 +90,8 @@ values.put("displayName", "Example");
 Optional<Account> account = dao.get(values);
 List<Account> accounts = dao.list(values);
 ```
+
+Map keys are Java property names and are resolved through the configured column naming strategy.
 
 ## Updates and deletes
 
