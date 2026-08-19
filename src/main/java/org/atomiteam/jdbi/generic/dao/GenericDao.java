@@ -20,16 +20,22 @@ import org.jdbi.v3.core.statement.StatementContext;
 import com.google.gson.Gson;
 
 /**
- * Generic CRUD DAO for entities backed by JDBI.
+ * Generic CRUD DAO for arbitrary Java POJOs backed by JDBI.
+ *
+ * <p>Entities may optionally extend {@link BaseEntity}, {@link Entity}, or
+ * {@link LongEntity}, but inheritance from a persistence base class is not
+ * required. A conventional property named {@code id} is used as the primary
+ * key when primary-key operations are requested.</p>
  *
  * @param <T> entity type
  */
-public class GenericDao<T extends BaseEntity<?>> {
+public class GenericDao<T> {
 
     private final Jdbi jdbi;
     private final Class<T> klazz;
     private final String table;
     private final ColumnNaming columnNaming;
+    private final Gson gson = new Gson();
 
     /**
      * Creates a DAO using legacy identity column naming.
@@ -48,9 +54,27 @@ public class GenericDao<T extends BaseEntity<?>> {
         this.columnNaming = Objects.requireNonNull(columnNaming, "columnNaming");
     }
 
-    public void insert(T entity) {
+    /**
+     * Inserts an entity and returns the same instance.
+     *
+     * <p>If an {@code id} property exists and is null, it is omitted from the
+     * INSERT and the generated database key is read back and assigned to the
+     * entity. If the id is already set, it is inserted normally.</p>
+     */
+    public T insert(T entity) {
+        Objects.requireNonNull(entity, "entity");
         try {
-            Map<String, Object> data = entity.toChanges();
+            Map<String, Object> data = toChanges(entity);
+            Field idField = findField(klazz, "id");
+            boolean generatedId = idField != null && getFieldValue(entity, idField) == null;
+            if (generatedId) {
+                data.remove("id");
+            }
+
+            if (data.isEmpty()) {
+                throw new IllegalArgumentException("Entity has no non-null values to insert into table " + table);
+            }
+
             List<String> properties = data.keySet().stream().collect(Collectors.toList());
             List<String> columns = properties.stream().map(this::columnName).collect(Collectors.toList());
             List<String> placeholders = properties.stream().map(property -> ":" + property).collect(Collectors.toList());
@@ -58,14 +82,24 @@ public class GenericDao<T extends BaseEntity<?>> {
             String sql = String.format("INSERT INTO %s (%s) VALUES (%s)", table,
                     String.join(", ", columns), String.join(", ", placeholders));
 
-            jdbi.withHandle(handle -> handle.createUpdate(sql).bindMap(data).execute());
+            if (generatedId) {
+                Object generatedKey = jdbi.withHandle(handle -> handle.createUpdate(sql)
+                        .bindMap(data)
+                        .executeAndReturnGeneratedKeys(columnName("id"))
+                        .map((rs, ctx) -> rs.getObject(1))
+                        .one());
+                PropertyUtils.setPropertyValue(entity, klazz, idField, generatedKey);
+            } else {
+                jdbi.withHandle(handle -> handle.createUpdate(sql).bindMap(data).execute());
+            }
+            return entity;
         } catch (Exception e) {
             throw new RuntimeException("Error inserting entity into table " + table, e);
         }
     }
 
     /**
-     * Retrieves an entity by its primary key. String and Long keys are both supported.
+     * Retrieves an entity by its primary key. String and numeric keys are supported.
      */
     public Optional<T> getById(Object id) {
         String sql = String.format("SELECT * FROM %s WHERE %s = ?", table, columnName("id"));
@@ -73,7 +107,27 @@ public class GenericDao<T extends BaseEntity<?>> {
                 .map(new JsonRowMapper<>(klazz, columnNaming)).findFirst());
     }
 
+    /**
+     * Retrieves the first entity matching all supplied Java-property values.
+     */
+    public Optional<T> get(Map<String, ?> values) {
+        List<T> items = list(values);
+        return items.stream().findFirst();
+    }
+
+    /**
+     * Retrieves all entities matching all supplied Java-property values.
+     */
+    public List<T> list(Map<String, ?> values) {
+        Filtering filtering = Filtering.create();
+        if (values != null) {
+            values.forEach(filtering::eq);
+        }
+        return filter(filtering);
+    }
+
     public List<T> filter(Filtering conditions) {
+        Objects.requireNonNull(conditions, "conditions");
         String whereClause = buildWhereClause(conditions);
 
         StringBuilder pagination = new StringBuilder();
@@ -96,6 +150,7 @@ public class GenericDao<T extends BaseEntity<?>> {
     }
 
     public Integer count(Filtering conditions) {
+        Objects.requireNonNull(conditions, "conditions");
         String whereClause = buildWhereClause(conditions);
         String sql = String.format("SELECT count(*) FROM %s %s", table, whereClause);
         return jdbi.withHandle(handle -> {
@@ -106,15 +161,36 @@ public class GenericDao<T extends BaseEntity<?>> {
     }
 
     /**
-     * Deletes an entity by primary key. String and Long keys are both supported.
+     * Deletes by primary-key value or by entity instance.
+     *
+     * <p>When an instance of this DAO's entity class is supplied, its {@code id}
+     * property is read reflectively. Otherwise the supplied object is treated as
+     * the primary-key value.</p>
      */
-    public int delete(Object id) {
+    public int delete(Object idOrEntity) {
+        Object id = idOrEntity;
+        if (idOrEntity != null && klazz.isInstance(idOrEntity)) {
+            id = getIdValue(klazz.cast(idOrEntity));
+        }
+        if (id == null) {
+            throw new IllegalArgumentException("Primary key cannot be null for table " + table);
+        }
         String sql = String.format("DELETE FROM %s WHERE %s = ?", table, columnName("id"));
-        return jdbi.withHandle(handle -> handle.createUpdate(sql).bind(0, id).execute());
+        Object finalId = id;
+        return jdbi.withHandle(handle -> handle.createUpdate(sql).bind(0, finalId).execute());
     }
 
+    /**
+     * Updates all non-null properties except id and returns the affected row count.
+     */
     public int update(T target) {
-        Map<String, Object> changes = new LinkedHashMap<>(target.toChanges());
+        Objects.requireNonNull(target, "target");
+        Object id = getIdValue(target);
+        if (id == null) {
+            throw new IllegalArgumentException("Entity id cannot be null when updating table " + table);
+        }
+
+        Map<String, Object> changes = new LinkedHashMap<>(toChanges(target));
         changes.remove("id");
         if (changes.isEmpty()) {
             return 0;
@@ -127,7 +203,57 @@ public class GenericDao<T extends BaseEntity<?>> {
                 assignments, columnName("id"));
 
         return jdbi.withHandle(handle -> handle.createUpdate(sql)
-                .bind("id", target.getId()).bindMap(changes).execute());
+                .bind("id", id).bindMap(changes).execute());
+    }
+
+    /**
+     * Atomi-style convenience method: updates an entity and returns the same instance.
+     */
+    public T updateAndReturn(T target) {
+        update(target);
+        return target;
+    }
+
+    private Map<String, Object> toChanges(T entity) {
+        Map<String, Object> changes = new LinkedHashMap<>();
+        Class<?> currentClass = entity.getClass();
+        try {
+            while (currentClass != null) {
+                for (Field field : currentClass.getDeclaredFields()) {
+                    if (Modifier.isStatic(field.getModifiers()) || field.isAnnotationPresent(Transient.class)) {
+                        continue;
+                    }
+                    field.setAccessible(true);
+                    Object value = field.get(entity);
+                    if (value != null) {
+                        changes.put(field.getName(), field.isAnnotationPresent(Json.class)
+                                ? gson.toJson(value)
+                                : value);
+                    }
+                }
+                currentClass = currentClass.getSuperclass();
+            }
+            return changes;
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("Failed to inspect entity " + entity.getClass().getName(), e);
+        }
+    }
+
+    private Object getIdValue(T entity) {
+        Field idField = findField(klazz, "id");
+        if (idField == null) {
+            throw new IllegalStateException("Entity " + klazz.getName() + " has no id property");
+        }
+        return getFieldValue(entity, idField);
+    }
+
+    private static Object getFieldValue(Object entity, Field field) {
+        try {
+            field.setAccessible(true);
+            return field.get(entity);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("Failed to read property " + field.getName(), e);
+        }
     }
 
     private String buildWhereClause(Filtering conditions) {
