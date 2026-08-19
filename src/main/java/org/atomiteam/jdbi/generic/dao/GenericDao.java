@@ -157,14 +157,14 @@ public class GenericDao<T> {
     public int update(Object id, Map<String, ?> requestedChanges) {
         if (id == null) throw new IllegalArgumentException("Entity id cannot be null when updating table " + table);
         Objects.requireNonNull(requestedChanges, "changes");
-        Map<String, Object> changes = new LinkedHashMap<>();
+        Map<String, Object> requested = new LinkedHashMap<>();
         requestedChanges.forEach((property, value) -> {
             if (!"id".equals(property)) {
                 String mapped = requireMappedProperty(property);
-                changes.put(mapped, codec.toStorageValue(mapped, value));
+                requested.put(mapped, codec.toStorageValue(mapped, value));
             }
         });
-        changes = sanitized(changes, true);
+        final Map<String, Object> changes = sanitized(requested, true);
         if (changes.isEmpty()) return 0;
 
         String assignments = changes.keySet().stream()
@@ -172,10 +172,9 @@ public class GenericDao<T> {
                 .collect(Collectors.joining(", "));
         String sql = String.format("UPDATE %s SET %s WHERE %s = :_genericDaoId", table,
                 assignments, columnName("id"));
-        Map<String, Object> finalChanges = changes;
         return jdbi.withHandle(handle -> {
             org.jdbi.v3.core.statement.Update update = handle.createUpdate(sql).bind("_genericDaoId", id);
-            finalChanges.forEach(update::bind);
+            changes.forEach(update::bind);
             return update.execute();
         });
     }
