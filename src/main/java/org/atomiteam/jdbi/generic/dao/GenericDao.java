@@ -97,8 +97,13 @@ public class GenericDao<T> {
                     .map(this::mapSorting)
                     .collect(Collectors.joining(", ")));
         }
-        if (conditions.getLimit() != null) suffix.append(" LIMIT ").append(conditions.getLimit());
-        if (conditions.getOffset() != null) suffix.append(" OFFSET ").append(conditions.getOffset());
+        if (conditions.getLimit() != null) {
+            suffix.append(" LIMIT ").append(conditions.getLimit());
+            if (conditions.getOffset() != null) suffix.append(" OFFSET ").append(conditions.getOffset());
+        } else if (conditions.getOffset() != null) {
+            // MySQL requires LIMIT when OFFSET is used without an explicit limit.
+            suffix.append(" LIMIT 18446744073709551615 OFFSET ").append(conditions.getOffset());
+        }
         String sql = String.format("SELECT * FROM %s %s%s", table, buildWhereClause(conditions), suffix);
         return jdbi.withHandle(handle -> {
             Query query = handle.createQuery(sql);
