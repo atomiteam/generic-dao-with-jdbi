@@ -2,10 +2,13 @@ package org.atomiteam.jdbi.generic.dao;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -72,18 +75,37 @@ class SnakeCaseLongIdTest {
     }
 
     @Test
+    void explicitPatchCanWriteSqlNull() {
+        dao.insert(record(2101L, "before", 10L, "Old"));
+        Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("sampleColumn", null);
+        changes.put("displayLabel", "Still here");
+
+        assertEquals(1, dao.update(2101L, changes));
+        SnakeLongRecord loaded = dao.getById(2101L).get();
+        assertNull(loaded.getSampleColumn());
+        assertEquals("Still here", loaded.getDisplayLabel());
+    }
+
+    @Test
     void filterAndCountAcceptJavaPropertyNames() {
         dao.insert(record(3001L, "beta", 30L, "B"));
         dao.insert(record(3002L, "alpha", 20L, "A"));
         dao.insert(record(3003L, "gamma", 10L, "C"));
 
-        List<SnakeLongRecord> matches = dao.filter(Filtering.create()
-                .eq("sampleColumn", "alpha"));
+        List<SnakeLongRecord> matches = dao.filter(Filtering.create().eq("sampleColumn", "alpha"));
         assertEquals(1, matches.size());
         assertEquals(3002L, matches.get(0).getId());
+        assertEquals(2, dao.count(Filtering.create().in("createdAt", List.of(20L, 30L))));
+    }
 
-        assertEquals(2, dao.count(Filtering.create()
-                .in("createdAt", List.of(20L, 30L))));
+    @Test
+    void nullPredicatesAreTypedAndBoundValueFree() {
+        dao.insert(record(3101L, null, 30L, "A"));
+        dao.insert(record(3102L, "present", 20L, "B"));
+
+        assertEquals(1, dao.filter(Filtering.create().isNull("sampleColumn")).size());
+        assertEquals(1, dao.filter(Filtering.create().isNotNull("sampleColumn")).size());
     }
 
     @Test
@@ -92,9 +114,7 @@ class SnakeCaseLongIdTest {
         dao.insert(record(4002L, "two", 10L, "2"));
         dao.insert(record(4003L, "three", 20L, "3"));
 
-        List<SnakeLongRecord> sorted = dao.filter(Filtering.create()
-                .withSorting("createdAt", Sorting.ASC));
-
+        List<SnakeLongRecord> sorted = dao.filter(Filtering.create().withSorting("createdAt", Sorting.ASC));
         assertEquals(List.of(4002L, 4003L, 4001L),
                 sorted.stream().map(SnakeLongRecord::getId).collect(Collectors.toList()));
     }
@@ -116,8 +136,6 @@ class SnakeCaseLongIdTest {
     void rejectsSqlInjectionInSortingPropertyBeforeExecutingSql() {
         assertThrows(IllegalArgumentException.class,
                 () -> dao.filter(Filtering.create().withSorting("createdAt DESC; DROP TABLE snake_long_record", Sorting.ASC)));
-
-        // The rejected expression must not have reached the database.
         assertEquals(0, dao.count(Filtering.create()));
     }
 
