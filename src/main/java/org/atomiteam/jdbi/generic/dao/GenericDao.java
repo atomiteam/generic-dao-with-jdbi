@@ -31,6 +31,8 @@ import com.google.gson.Gson;
  */
 public class GenericDao<T> {
 
+    private static final String SQL_IDENTIFIER_PATTERN = "[A-Za-z_][A-Za-z0-9_]*";
+
     private final Jdbi jdbi;
     private final Class<T> klazz;
     private final String table;
@@ -50,8 +52,9 @@ public class GenericDao<T> {
     public GenericDao(Jdbi jdbi, Class<T> klazz, String table, ColumnNaming columnNaming) {
         this.jdbi = Objects.requireNonNull(jdbi, "jdbi");
         this.klazz = Objects.requireNonNull(klazz, "klazz");
-        this.table = Objects.requireNonNull(table, "table");
+        this.table = requireIdentifier(table, "table");
         this.columnNaming = Objects.requireNonNull(columnNaming, "columnNaming");
+        validateMappedColumns();
     }
 
     /**
@@ -77,7 +80,8 @@ public class GenericDao<T> {
 
             List<String> properties = data.keySet().stream().collect(Collectors.toList());
             List<String> columns = properties.stream().map(this::columnName).collect(Collectors.toList());
-            List<String> placeholders = properties.stream().map(property -> ":" + property).collect(Collectors.toList());
+            List<String> placeholders = properties.stream().map(this::bindName).map(property -> ":" + property)
+                    .collect(Collectors.toList());
 
             String sql = String.format("INSERT INTO %s (%s) VALUES (%s)", table,
                     String.join(", ", columns), String.join(", ", placeholders));
@@ -93,6 +97,8 @@ public class GenericDao<T> {
                 jdbi.withHandle(handle -> handle.createUpdate(sql).bindMap(data).execute());
             }
             return entity;
+        } catch (IllegalArgumentException e) {
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException("Error inserting entity into table " + table, e);
         }
@@ -162,10 +168,6 @@ public class GenericDao<T> {
 
     /**
      * Deletes by primary-key value or by entity instance.
-     *
-     * <p>When an instance of this DAO's entity class is supplied, its {@code id}
-     * property is read reflectively. Otherwise the supplied object is treated as
-     * the primary-key value.</p>
      */
     public int delete(Object idOrEntity) {
         Object id = idOrEntity;
@@ -197,7 +199,7 @@ public class GenericDao<T> {
         }
 
         String assignments = changes.keySet().stream()
-                .map(property -> String.format("%s = :%s", columnName(property), property))
+                .map(property -> String.format("%s = :%s", columnName(property), bindName(property)))
                 .collect(Collectors.joining(", "));
         String sql = String.format("UPDATE %s SET %s WHERE %s = :id", table,
                 assignments, columnName("id"));
@@ -206,9 +208,6 @@ public class GenericDao<T> {
                 .bind("id", id).bindMap(changes).execute());
     }
 
-    /**
-     * Atomi-style convenience method: updates an entity and returns the same instance.
-     */
     public T updateAndReturn(T target) {
         update(target);
         return target;
@@ -220,7 +219,8 @@ public class GenericDao<T> {
         try {
             while (currentClass != null) {
                 for (Field field : currentClass.getDeclaredFields()) {
-                    if (Modifier.isStatic(field.getModifiers()) || field.isAnnotationPresent(Transient.class)) {
+                    if (Modifier.isStatic(field.getModifiers()) || Modifier.isTransient(field.getModifiers())
+                            || field.isSynthetic() || field.isAnnotationPresent(Transient.class)) {
                         continue;
                     }
                     field.setAccessible(true);
@@ -240,10 +240,7 @@ public class GenericDao<T> {
     }
 
     private Object getIdValue(T entity) {
-        Field idField = findField(klazz, "id");
-        if (idField == null) {
-            throw new IllegalStateException("Entity " + klazz.getName() + " has no id property");
-        }
+        Field idField = requireMappedField("id");
         return getFieldValue(entity, idField);
     }
 
@@ -263,21 +260,22 @@ public class GenericDao<T> {
 
         String clause = conditions.filterings().stream()
                 .map(filter -> {
-                    String property = filter.getName();
+                    String property = requireMappedProperty(filter.getName());
                     String column = columnName(property);
+                    String parameter = bindName(property);
                     switch (filter.getOperator()) {
                         case In:
-                            return String.format("%s IN (<%s>)", column, property);
+                            return String.format("%s IN (<%s>)", column, parameter);
                         case NotIn:
-                            return String.format("%s NOT IN (<%s>)", column, property);
+                            return String.format("%s NOT IN (<%s>)", column, parameter);
                         case Like:
-                            return String.format("%s LIKE :%s", column, property);
+                            return String.format("%s LIKE :%s", column, parameter);
                         case NotLike:
-                            return String.format("%s NOT LIKE :%s", column, property);
+                            return String.format("%s NOT LIKE :%s", column, parameter);
                         case Eq:
-                            return String.format("%s = :%s", column, property);
+                            return String.format("%s = :%s", column, parameter);
                         case NotEq:
-                            return String.format("%s != :%s", column, property);
+                            return String.format("%s != :%s", column, parameter);
                         default:
                             throw new IllegalArgumentException("Unsupported operator: " + filter.getOperator());
                     }
@@ -288,7 +286,7 @@ public class GenericDao<T> {
 
     private void bindQueryParameters(Query query, Filtering conditions) {
         for (Filter filter : conditions.filterings()) {
-            String key = filter.getName();
+            String key = bindName(requireMappedProperty(filter.getName()));
             Object value = filter.getValue();
             if (value instanceof Collection<?>) {
                 query.bindList(key, (Collection<?>) value);
@@ -299,20 +297,82 @@ public class GenericDao<T> {
     }
 
     private String mapSorting(String sorting) {
-        int separator = sorting.lastIndexOf(' ');
-        if (separator < 0) {
-            return columnName(sorting);
+        String trimmed = Objects.requireNonNull(sorting, "sorting").trim();
+        if (trimmed.isEmpty()) {
+            throw new IllegalArgumentException("Sorting cannot be empty");
         }
-        String property = sorting.substring(0, separator);
-        return columnName(property) + sorting.substring(separator);
+
+        String[] parts = trimmed.split("\\s+");
+        if (parts.length < 1 || parts.length > 2) {
+            throw new IllegalArgumentException("Invalid sorting expression: " + sorting);
+        }
+
+        String property = requireMappedProperty(parts[0]);
+        if (parts.length == 1) {
+            return columnName(property);
+        }
+
+        String direction = parts[1].toUpperCase(java.util.Locale.ROOT);
+        if (!"ASC".equals(direction) && !"DESC".equals(direction)) {
+            throw new IllegalArgumentException("Invalid sorting direction: " + parts[1]);
+        }
+        return columnName(property) + " " + direction;
     }
 
     private String columnName(String propertyName) {
-        Field field = findField(klazz, propertyName);
-        if (field != null && field.isAnnotationPresent(Column.class)) {
-            return field.getAnnotation(Column.class).value();
+        Field field = requireMappedField(propertyName);
+        String column = field.isAnnotationPresent(Column.class)
+                ? field.getAnnotation(Column.class).value()
+                : columnNaming.toColumnName(propertyName);
+        return requireIdentifier(column, "column");
+    }
+
+    private String requireMappedProperty(String propertyName) {
+        if (propertyName == null || propertyName.isBlank()) {
+            throw new IllegalArgumentException("Property name cannot be blank");
         }
-        return columnNaming.toColumnName(propertyName);
+        requireMappedField(propertyName);
+        return propertyName;
+    }
+
+    private Field requireMappedField(String propertyName) {
+        Field field = findField(klazz, propertyName);
+        if (field == null || Modifier.isStatic(field.getModifiers()) || Modifier.isTransient(field.getModifiers())
+                || field.isSynthetic() || field.isAnnotationPresent(Transient.class)) {
+            throw new IllegalArgumentException("Unknown or unmapped property '" + propertyName
+                    + "' for entity " + klazz.getName());
+        }
+        return field;
+    }
+
+    private String bindName(String propertyName) {
+        requireMappedProperty(propertyName);
+        return requireIdentifier(propertyName, "bind property");
+    }
+
+    private void validateMappedColumns() {
+        Class<?> current = klazz;
+        while (current != null) {
+            for (Field field : current.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers()) || Modifier.isTransient(field.getModifiers())
+                        || field.isSynthetic() || field.isAnnotationPresent(Transient.class)) {
+                    continue;
+                }
+                String column = field.isAnnotationPresent(Column.class)
+                        ? field.getAnnotation(Column.class).value()
+                        : columnNaming.toColumnName(field.getName());
+                requireIdentifier(column, "column");
+                requireIdentifier(field.getName(), "property");
+            }
+            current = current.getSuperclass();
+        }
+    }
+
+    private static String requireIdentifier(String value, String description) {
+        if (value == null || !value.matches(SQL_IDENTIFIER_PATTERN)) {
+            throw new IllegalArgumentException("Invalid SQL " + description + " identifier: " + value);
+        }
+        return value;
     }
 
     private static Field findField(Class<?> type, String name) {
@@ -345,11 +405,15 @@ class JsonRowMapper<T> implements RowMapper<T> {
             Class<?> currentClass = type;
             while (currentClass != null) {
                 for (Field field : currentClass.getDeclaredFields()) {
-                    if (!Modifier.isStatic(field.getModifiers()) && !field.isAnnotationPresent(Transient.class)) {
+                    if (!Modifier.isStatic(field.getModifiers()) && !Modifier.isTransient(field.getModifiers())
+                            && !field.isSynthetic() && !field.isAnnotationPresent(Transient.class)) {
                         field.setAccessible(true);
                         String column = field.isAnnotationPresent(Column.class)
                                 ? field.getAnnotation(Column.class).value()
                                 : columnNaming.toColumnName(field.getName());
+                        if (column == null || !column.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                            throw new SQLException("Invalid mapped SQL column identifier: " + column);
+                        }
                         try {
                             Object value = field.isAnnotationPresent(Json.class)
                                     ? gson.fromJson(rs.getString(column), field.getType())
