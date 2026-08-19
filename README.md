@@ -1,117 +1,117 @@
+# generic-dao-with-jdbi
 
-# Generic DAO with JDBI
+Generic CRUD access for JDBC databases using JDBI.
 
-A Java library providing a generic Data Access Object (DAO) implementation using [JDBI](https://jdbi.org/) for database interactions. This project simplifies CRUD operations, enhances flexibility, and promotes code reusability.
+## Version 2.0 highlights
 
-## Features
+Version 2.0 adds support for:
 
-- **Simplified CRUD Operations**: Perform create, read, update, and delete operations with ease.
-- **Change Tracking**: Utility methods for tracking changes in entity fields.
-- **Flexible Mapping**: Seamless mapping of database rows to Java objects using `BeanMapper`.
-- **Test-Friendly Setup**: In-memory H2 database configuration for testing.
+- Plain Java POJOs; extending a persistence base class is optional.
+- String and numeric primary keys, including `Long` / `BIGINT` IDs.
+- Database-generated `id` values, assigned back to the inserted object.
+- Configurable Java-property to database-column naming.
+- `ColumnNaming.SNAKE_CASE`, for example `sampleColumn` -> `sample_column`.
+- `@Column` for explicit database column overrides.
+- Java-property based filtering and sorting when snake-case mapping is enabled.
+- Map-based `get` and `list` convenience methods.
+- Numeric and enum conversion during row mapping.
 
-## Prerequisites
-
-- Java 11 or higher.
-- Maven.
-
-## Constraints
-
-- **Case-Sensitive Matching**: Column names in the database and Java property names must match exactly, including case sensitivity.
-- **ID Column**: All entities must include an `id` column of type `VARCHAR`.
-
-## Installation
-
-Clone the repository:
-
-```bash
-git clone https://github.com/your-username/generic-dao-with-jdbi.git
-```
-
-Navigate to the project directory and build the project:
-
-```bash
-cd generic-dao-with-jdbi
-mvn clean install
-```
-
-## Usage
-
-### Setting Up a New DAO
-
-1. **Create an Entity**: Extend the `Entity` class for your data model.
+## Basic POJO example
 
 ```java
-public class Hotel extends Entity {
-    private String name;
+public class Account {
+    private Long id;
+    private String displayName;
 
-    public String getName() {
-        return name;
+    public Long getId() {
+        return id;
     }
 
-    public void setName(String name) {
-        this.name = name;
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public void setDisplayName(String displayName) {
+        this.displayName = displayName;
     }
 }
 ```
 
-2. **Define a DAO**: Create a DAO class by extending `GenericDao`.
-
 ```java
-public class HotelDao extends GenericDao<Hotel> {
-    public HotelDao(Jdbi jdbi) {
-        super(jdbi, Hotel.class, "hotel");
+public class AccountDao extends GenericDao<Account> {
+    public AccountDao(Jdbi jdbi) {
+        super(jdbi, Account.class, "account", ColumnNaming.SNAKE_CASE);
     }
 }
 ```
 
-3. **Use the DAO**: Interact with your DAO in the application.
+With snake-case naming enabled, `displayName` maps to `display_name`.
+
+## Generated Long IDs
+
+If the POJO contains an `id` property and its value is `null`, `insert` omits the id from the INSERT, reads the generated database key, and assigns it back to the same object.
 
 ```java
-Jdbi jdbi = Jdbi.create("jdbc:h2:mem:test");
-HotelDao hotelDao = new HotelDao(jdbi);
+Account account = new Account();
+account.setDisplayName("Example");
 
-Hotel hotel = new Hotel();
-hotel.setId("1");
-hotel.setName("Hotel Paradise");
-hotelDao.insert(hotel);
+dao.insert(account);
+Long generatedId = account.getId();
 ```
 
-### Testing
+If the ID is already populated, it is inserted normally.
 
-This project includes unit tests using JUnit and Mockito. To run the tests:
+## Filtering
 
-```bash
-mvn test
+Filtering and sorting use Java property names even when the database uses snake case.
+
+```java
+List<Account> accounts = dao.filter(
+    Filtering.create()
+        .eq("displayName", "Example")
+        .withSorting("displayName", Sorting.ASC)
+);
 ```
 
-## Project Structure
+## Map compatibility helpers
 
-- **`Entity.java`**: A base class for all data entities.
-- **`GenericDao.java`**: Generic DAO implementation for CRUD operations.
-- **`Hotel.java`**: Example entity representing a hotel.
-- **`HotelDao.java`**: Example DAO for the `Hotel` entity.
-- **`GenericDaoTest.java`**: Test cases for the `GenericDao` functionality.
+```java
+Map<String, Object> values = new HashMap<>();
+values.put("displayName", "Example");
 
-## Dependencies
+Optional<Account> account = dao.get(values);
+List<Account> accounts = dao.list(values);
+```
 
-This project uses the following dependencies:
+## Updates and deletes
 
-- [JDBI 3](https://jdbi.org/) for database interactions.
-- [JUnit 5](https://junit.org/junit5/) for testing.
-- [Mockito](https://site.mockito.org/) for mocking.
-- [H2 Database](https://www.h2database.com/) for in-memory database testing.
+`update` retains the affected-row-count behavior. `updateAndReturn` is available for entity-oriented flows.
 
-All dependencies are managed via Maven. See the `pom.xml` file for details.
+```java
+int changed = dao.update(account);
+Account sameAccount = dao.updateAndReturn(account);
+```
 
-## License
+`delete` accepts either an ID value or an entity instance with a populated `id` property.
 
-This project is licensed under the MIT License. See the `LICENSE` file for details.
+```java
+dao.delete(account.getId());
+dao.delete(account);
+```
 
-## Contributing
+## Spring / DataSource integration
 
-Contributions are welcome! Please submit issues or pull requests via GitHub.
+The library itself does not require Spring. In Spring applications, create one JDBI instance from the application's existing `DataSource` and inject it into DAOs:
 
-## Contact
+```java
+@Bean
+public Jdbi jdbi(DataSource dataSource) {
+    return Jdbi.create(dataSource);
+}
+```
 
-For questions or suggestions, please reach out to [your-email@example.com].
+This allows JDBI to use the application's existing connection pool and database configuration.
