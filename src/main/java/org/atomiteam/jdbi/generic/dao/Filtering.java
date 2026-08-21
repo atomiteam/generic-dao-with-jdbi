@@ -23,7 +23,23 @@ public class Filtering {
         return new Filtering();
     }
 
-    public Filtering eq(String name, Object value) { filters.add(filter(name, Operator.Eq, value)); return this; }
+    /**
+     * Adds an equality filter. For backward compatibility with the legacy map-based DAO API,
+     * comparison prefixes in String values are translated to the corresponding typed operator.
+     * Prefix order matters: >= and <= must be checked before > and <.
+     */
+    public Filtering eq(String name, Object value) {
+        if (value instanceof String) {
+            String text = (String) value;
+            if (text.startsWith(">=")) return gte(name, text.substring(2));
+            if (text.startsWith("<=")) return lte(name, text.substring(2));
+            if (text.startsWith(">")) return gt(name, text.substring(1));
+            if (text.startsWith("<")) return lt(name, text.substring(1));
+        }
+        filters.add(filter(name, Operator.Eq, value));
+        return this;
+    }
+
     public Filtering notEq(String name, Object value) { filters.add(filter(name, Operator.NotEq, value)); return this; }
     public Filtering like(String name, Object value) { filters.add(filter(name, Operator.Like, value)); return this; }
     public Filtering notLike(String name, Object value) { filters.add(filter(name, Operator.NotLike, value)); return this; }
