@@ -26,7 +26,7 @@ public class Filtering {
     /**
      * Adds an equality filter. For backward compatibility with the legacy map-based DAO API,
      * comparison prefixes in String values are translated to the corresponding typed operator.
-     * Prefix order matters: >= and <= must be checked before > and <.
+     * Two-character comparison prefixes are checked before one-character prefixes.
      */
     public Filtering eq(String name, Object value) {
         if (value instanceof String) {
