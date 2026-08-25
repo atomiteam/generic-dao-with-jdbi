@@ -48,7 +48,10 @@ public class GenericDao<T> {
         Objects.requireNonNull(entity, "entity");
         Map<String, Object> data = sanitized(codec.toStorage(entity, false), false);
         Object currentId = codec.getId(entity);
-        boolean generatedId = currentId == null;
+        boolean generatedId =
+                currentId == null
+                        || (currentId instanceof Number
+                                && ((Number) currentId).longValue() == 0L);
         if (generatedId) data.remove("id");
         if (data.isEmpty()) {
             throw new IllegalArgumentException(
