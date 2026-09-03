@@ -39,7 +39,7 @@ public class GenericDao<T> {
             EntityCodec<T> codec) {
         this.jdbi = Objects.requireNonNull(jdbi, "jdbi");
         this.klazz = Objects.requireNonNull(klazz, "klazz");
-        this.table = requireIdentifier(table, "table");
+        this.table = requireTableIdentifier(table);
         this.columnNaming = Objects.requireNonNull(columnNaming, "columnNaming");
         this.codec = Objects.requireNonNull(codec, "codec");
     }
@@ -388,6 +388,18 @@ public class GenericDao<T> {
 
     private String bindName(String propertyName) {
         return requireIdentifier(requireMappedProperty(propertyName), "bind property");
+    }
+
+    /** Allows qualified table names while validating every identifier component. */
+    private static String requireTableIdentifier(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("Invalid SQL table identifier: null");
+        }
+        // Keep empty components so leading, trailing and consecutive dots are rejected.
+        for (String component : value.split("\\.", -1)) {
+            requireIdentifier(component, "table");
+        }
+        return value;
     }
 
     private static String requireIdentifier(String value, String description) {
