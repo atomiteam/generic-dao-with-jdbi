@@ -114,7 +114,8 @@ public class GenericDao<T> {
     /** Locks a keyed row in the caller's transaction; the caller retains handle ownership. */
     public Optional<T> getByKeyForUpdate(Map<String, ?> keys) {
         if (handle == null || !handle.isInTransaction())
-            throw new IllegalStateException("A borrowed transaction handle is required for row locks");
+            throw new IllegalStateException(
+                    "A borrowed transaction handle is required for row locks");
         return filter(keyFilter(keys).withLimit(1L), " FOR UPDATE").stream().findFirst();
     }
 
@@ -229,7 +230,8 @@ public class GenericDao<T> {
                     .append(conditions.getOffset());
         }
         DaoPredicates predicates = predicates(conditions);
-        String sql = String.format("SELECT * FROM %s %s%s", table, predicates.sql(), suffix) + locking;
+        String sql =
+                String.format("SELECT * FROM %s %s%s", table, predicates.sql(), suffix) + locking;
         return withHandle(
                 handle -> {
                     Query query = handle.createQuery(sql);

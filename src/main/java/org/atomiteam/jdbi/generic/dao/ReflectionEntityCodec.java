@@ -51,8 +51,8 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
     }
 
     /**
-     * Selects raw values by mapped POJO property name, without converting or encoding them.
-     * Unknown document extensions are ignored; SQL expressions are never mapped properties.
+     * Selects raw values by mapped POJO property name, without converting or encoding them. Unknown
+     * document extensions are ignored; SQL expressions are never mapped properties.
      */
     public Map<String, Object> mappedProperties(Map<String, ?> source, boolean includeNulls) {
         Objects.requireNonNull(source, "source");

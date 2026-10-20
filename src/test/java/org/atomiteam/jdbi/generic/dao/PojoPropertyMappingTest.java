@@ -3,9 +3,11 @@ package org.atomiteam.jdbi.generic.dao;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.google.gson.JsonElement;
+
+import org.junit.jupiter.api.Test;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
-import org.junit.jupiter.api.Test;
 
 class PojoPropertyMappingTest {
     public static class Row {
