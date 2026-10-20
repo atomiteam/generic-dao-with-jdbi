@@ -23,6 +23,11 @@ final class SqlFragments {
 
     static String append(String baseSql, String predicate) {
         List<Token> tokens = tokens(baseSql);
+        for (Token token : tokens) {
+            if (Arrays.asList("UNION", "INTERSECT", "EXCEPT").contains(token.word))
+                throw new IllegalArgumentException(
+                        "Wrap set operations in a SELECT before adding filters");
+        }
         int where = -1, tail = baseSql.length();
         for (Token token : tokens) {
             if (token.word.equals("WHERE")) where = token.start;
@@ -31,9 +36,6 @@ final class SqlFragments {
                 tail = token.start;
                 break;
             }
-            if (Arrays.asList("UNION", "INTERSECT", "EXCEPT").contains(token.word))
-                throw new IllegalArgumentException(
-                        "Wrap set operations in a SELECT before adding filters");
         }
         String suffix = baseSql.substring(tail);
         if (where < 0)

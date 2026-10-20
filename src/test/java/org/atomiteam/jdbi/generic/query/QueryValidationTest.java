@@ -84,4 +84,15 @@ class QueryValidationTest {
                         .sql()
                         .contains("ORDER BY id DESC"));
     }
+
+    @Test
+    void setOperationsAreRejectedEvenAfterGrouping() {
+        for (String operation : List.of("UNION", "INTERSECT", "EXCEPT")) {
+            String sql = "SELECT 1 GROUP BY 1 " + operation + " SELECT 2";
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> JdbiQuery.select(sql).eq("id", 1).sql());
+        }
+    }
+
 }
