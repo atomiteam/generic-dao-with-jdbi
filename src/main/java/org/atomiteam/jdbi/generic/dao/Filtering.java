@@ -40,6 +40,12 @@ public class Filtering {
         return this;
     }
 
+    /** Literal equality; unlike the legacy eq helper, never interprets string prefixes. */
+    public Filtering equalTo(String name, Object value) {
+        filters.add(filter(name, value == null ? Operator.IsNull : Operator.Eq, value));
+        return this;
+    }
+
     public Filtering notEq(String name, Object value) { filters.add(filter(name, Operator.NotEq, value)); return this; }
     public Filtering like(String name, Object value) { filters.add(filter(name, Operator.Like, value)); return this; }
     public Filtering notLike(String name, Object value) { filters.add(filter(name, Operator.NotLike, value)); return this; }

@@ -175,3 +175,93 @@ public JdbiQueryExecutor jdbiQueryExecutor(Jdbi jdbi) {
 ```
 
 This allows both `GenericDao` and the custom query layer to use the application's existing connection pool and database configuration.
+
+## 2.1: scoped CRUD, shared transactions, PostgreSQL and Aurora DSQL
+
+The core remains Java 11 compatible. The optional AWS Aurora DSQL JDBC connector requires
+Java 17 or newer. See [the DSQL integration guide](docs/aurora-dsql.md) for authentication,
+compatibility limits, and the opt-in real-database contract test.
+
+### Mandatory scope and composite keys
+
+```java
+GenericDao<Activity> activities = DsqlSupport.dao(jdbi, Activity.class, "business.activities")
+    .scoped(Map.of("tenantId", tenantId, "workspaceId", workspaceId));
+
+Optional<Activity> current = activities.getById(activityId);
+int changed = activities.updateByKey(
+    Map.of("id", activityId, "version", expectedVersion),
+    Map.of("title", "Updated title", "version", expectedVersion + 1));
+// changed == 0 means the scoped record/key version did not match.
+activities.deleteByKey(Map.of("id", activityId, "version", expectedVersion + 1));
+```
+
+Scope is immutable and is always ANDed outside caller filters, including OR groups.
+Inserts inject missing scope values and reject conflicting values. Updates cannot change
+scope fields. A second `scoped` call can add scope but cannot replace it. Empty/null keys
+and null scope values are rejected. Existing unscoped methods remain available for
+backward compatibility; the application must obtain scope from verified authorization,
+not request-controlled tenant IDs. Explicit `Filtering.equalTo` and composite key methods
+use literal equality; legacy `Filtering.eq` retains its historical string-prefix behavior.
+
+### One transaction across DAOs and queries
+
+```java
+DsqlTransactions.run(jdbi, 4, handle -> {
+    GenericDao<Activity> txActivities = activities.using(handle);
+    int changed = txActivities.updateByKey(
+        Map.of("id", activityId, "version", expectedVersion),
+        Map.of("title", "Updated title", "version", expectedVersion + 1));
+    if (changed != 1) throw new IllegalStateException("Record changed; reload before saving");
+    outbox.using(handle).insert(event);
+    return txActivities.getById(activityId);
+});
+```
+
+`GenericDao.using(handle)` and `JdbiQueryExecutor.using(handle)` borrow the supplied
+Handle without closing, committing or rolling it back. Use them only within the
+Handle's lifetime and thread. `DsqlTransactions` retries the complete callback on
+SQLSTATE `40001`, including conflicts detected at commit, with bounded jittered backoff
+and a fresh Handle. It does not retry permission errors, unique violations or ambiguous
+connection failures. Keep callbacks replayable: use stable operation IDs/outbox records;
+never send email, write S3, or perform other external effects inside them. No savepoints
+or isolation-level changes are introduced.
+
+### Keyset pagination
+
+```java
+List<SeekColumn> order = List.of(
+    new SeekColumn("a.createdAt", Sorting.DESC, SeekColumn.Nulls.LAST),
+    new SeekColumn("a.id", Sorting.DESC, SeekColumn.Nulls.LAST));
+JdbiQuery query = JdbiQuery.select("SELECT a.* FROM business.activities a")
+    .eq("a.tenantId", tenantId)
+    .eq("a.workspaceId", workspaceId)
+    .seekAfter(order, previousValues); // null for the first page
+
+ReflectionEntityCodec<Activity> codec = new ReflectionEntityCodec<>(Activity.class);
+SeekPage<Activity> page = new JdbiQueryExecutor(jdbi).seekPage(query, 20,
+    codec::fromStorage, item -> Arrays.asList(item.getCreatedAt(), item.getId()));
+List<?> nextValues = page.getNextValues(); // null at the end
+```
+
+The executor fetches `pageSize + 1` rows, without a COUNT query or mutating the caller's
+query. Ordering supports multiple columns, mixed directions and explicit null placement.
+End the ordering with a unique stable tie-breaker. Ordering expressions must come from
+trusted application metadata. The application must serialize/sign continuation values,
+bind them to scope/filter/order/principal, validate types, and enforce authorization.
+These values are not an authenticated cursor token. Do not mix seek order with offsets.
+Concurrent edits do not provide a frozen snapshot across separate page requests.
+
+### Unquoted camelCase
+
+Keep Java fields and SQL source names such as `displayName` unquoted. PostgreSQL/DSQL
+folds that SQL identifier to physical `displayname`; row mapping now resolves those
+folded labels case-insensitively while preserving Java `displayName`. SQL generation
+does not introduce quoted names. Reserved SQL words still require a different mapped
+column name. Existing quoted mixed-case columns need an explicit migration before
+switching to unquoted SQL; deleting quote characters does not rename stored columns.
+
+Use `DsqlSupport.dao(...)` for `@Json` fields: JSON is encoded once and bound using
+JDBC `Types.OTHER` so PostgreSQL/DSQL JSON/JSONB columns do not receive VARCHAR values.
+The default `GenericDao` codec remains portable and unchanged for existing users.
+JDBC timestamps/dates and UUID strings map to matching Java temporal/UUID fields.
