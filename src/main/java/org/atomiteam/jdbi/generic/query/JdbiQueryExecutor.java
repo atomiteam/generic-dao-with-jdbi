@@ -87,6 +87,19 @@ public final class JdbiQueryExecutor {
                 });
     }
 
+    /** Executes named bindings with native JDBC projections and a bounded timeout. */
+    public <T> List<T> rows(
+            JdbiQuery query, int timeoutSeconds, org.jdbi.v3.core.mapper.RowMapper<T> mapper) {
+        Objects.requireNonNull(query, "query");
+        Objects.requireNonNull(mapper, "mapper");
+        if (timeoutSeconds < 1)
+            throw new IllegalArgumentException("timeoutSeconds must be positive");
+        return execute(
+                query.sql(),
+                query.bindings(),
+                statement -> statement.setQueryTimeout(timeoutSeconds).map(mapper).list());
+    }
+
     public List<Map<String, Object>> maps(JdbiQuery query) {
         Objects.requireNonNull(query, "query");
         return execute(query.sql(), query.bindings(), statement -> statement.mapToMap().list());
