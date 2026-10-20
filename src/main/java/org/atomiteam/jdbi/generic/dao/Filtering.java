@@ -2,141 +2,119 @@ package org.atomiteam.jdbi.generic.dao;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-/**
- * A class for building and managing a collection of filters to be applied in queries.
- * Filters can be added using methods like `eq`, `notEq`, `like`, `notLike`, `in`, and `notIn`.
- * The filters are stored in a list and can be retrieved using the `filterings` method.
- *
- * ⚠ WARNING: The `name` parameter is used to generate SQL statements. **DO NOT** accept `name` as 
- * user input directly, as it may lead to SQL injection vulnerabilities. The values are safe to use, 
- * but not the field names. Developers are responsible for ensuring the safe usage of this class. 
- * Improper usage can risk the security of their application.
- */
+/** Type-safe query filtering and pagination using Java property names. */
 public class Filtering {
 
     private final List<Filter> filters = new ArrayList<>();
+    private final List<SortClause> sortings = new ArrayList<>();
     private Long offset;
     private Long limit;
     private LogicalOperator operator = LogicalOperator.AND;
-    private String sorting;
-    
-    /**
-     * Private constructor to enforce the use of the factory method `create`.
-     */
+
     private Filtering() {
     }
 
-    /**
-     * Creates a new instance of Filtering.
-     *
-     * @return a new Filtering instance.
-     */
     public static Filtering create() {
         return new Filtering();
     }
 
+    /**
+     * Adds an equality filter. For backward compatibility with the legacy map-based DAO API,
+     * comparison prefixes in String values are translated to the corresponding typed operator.
+     * Two-character comparison prefixes are checked before one-character prefixes.
+     */
     public Filtering eq(String name, Object value) {
-        this.filters.add(Filter.create()
-                .withName(name)
-                .withOperator(Operator.Eq)
-                .withValue(value));
+        if (value instanceof String) {
+            String text = (String) value;
+            if (text.startsWith(">=")) return gte(name, text.substring(2));
+            if (text.startsWith("<=")) return lte(name, text.substring(2));
+            if (text.startsWith(">")) return gt(name, text.substring(1));
+            if (text.startsWith("<")) return lt(name, text.substring(1));
+        }
+        filters.add(filter(name, Operator.Eq, value));
         return this;
     }
 
-    public Filtering notEq(String name, Object value) {
-        this.filters.add(Filter.create()
-                .withName(name)
-                .withOperator(Operator.NotEq)
-                .withValue(value));
-        return this;
-    }
-
-    public Filtering like(String name, Object value) {
-        this.filters.add(Filter.create()
-                .withName(name)
-                .withOperator(Operator.Like)
-                .withValue(value));
-        return this;
-    }
-
-    public Filtering notLike(String name, Object value) {
-        this.filters.add(Filter.create()
-                .withName(name)
-                .withOperator(Operator.NotLike)
-                .withValue(value));
-        return this;
-    }
-
-    public Filtering in(String name, Collection<?> values) {
-        this.filters.add(Filter.create()
-                .withName(name)
-                .withOperator(Operator.In)
-                .withValue(values));
-        return this;
-    }
-
-    public Filtering notIn(String name, Collection<?> values) {
-        this.filters.add(Filter.create()
-                .withName(name)
-                .withOperator(Operator.NotIn)
-                .withValue(values));
-        return this;
-    }
+    public Filtering notEq(String name, Object value) { filters.add(filter(name, Operator.NotEq, value)); return this; }
+    public Filtering like(String name, Object value) { filters.add(filter(name, Operator.Like, value)); return this; }
+    public Filtering notLike(String name, Object value) { filters.add(filter(name, Operator.NotLike, value)); return this; }
+    public Filtering in(String name, Collection<?> values) { filters.add(filter(name, Operator.In, values)); return this; }
+    public Filtering notIn(String name, Collection<?> values) { filters.add(filter(name, Operator.NotIn, values)); return this; }
+    public Filtering lt(String name, Object value) { filters.add(filter(name, Operator.Lt, value)); return this; }
+    public Filtering lte(String name, Object value) { filters.add(filter(name, Operator.Lte, value)); return this; }
+    public Filtering gt(String name, Object value) { filters.add(filter(name, Operator.Gt, value)); return this; }
+    public Filtering gte(String name, Object value) { filters.add(filter(name, Operator.Gte, value)); return this; }
+    public Filtering isNull(String name) { filters.add(filter(name, Operator.IsNull, null)); return this; }
+    public Filtering isNotNull(String name) { filters.add(filter(name, Operator.IsNotNull, null)); return this; }
 
     public List<Filter> filterings() {
         return filters.stream()
-                .filter(f -> Objects.nonNull(f.getValue()) && Objects.nonNull(f.getName()) && 
-                        !f.getName().isBlank())
+                .filter(f -> Objects.nonNull(f.getName()) && !f.getName().isBlank())
+                .filter(f -> f.getOperator() == Operator.IsNull || f.getOperator() == Operator.IsNotNull
+                        || Objects.nonNull(f.getValue()))
                 .collect(Collectors.toList());
     }
 
-    public Long getOffset() {
-        return offset;
-    }
+    public Long getOffset() { return offset; }
 
     public Filtering withOffset(Long offset) {
-        if (offset != null && offset < 0) {
-            throw new IllegalArgumentException("Offset cannot be negative");
-        }
+        if (offset != null && offset < 0) throw new IllegalArgumentException("Offset cannot be negative");
         this.offset = offset;
         return this;
     }
 
-    public Long getLimit() {
-        return limit;
-    }
+    public Long getLimit() { return limit; }
 
     public Filtering withLimit(Long limit) {
-        if (limit != null && limit < 0) {
-            throw new IllegalArgumentException("Limit cannot be negative");
-        }
+        if (limit != null && limit < 0) throw new IllegalArgumentException("Limit cannot be negative");
         this.limit = limit;
         return this;
     }
-    
+
     public Filtering withSorting(String name, Sorting sorting) {
-        if (name == null) {
-            throw new IllegalArgumentException("Name cannot be null");
-        }
-        this.sorting = name + " " + sorting.name();
+        if (name == null || name.isBlank()) throw new IllegalArgumentException("Name cannot be null or blank");
+        if (sorting == null) throw new IllegalArgumentException("Sorting cannot be null");
+        sortings.add(new SortClause(name, sorting));
         return this;
-    }   
-    
-    public LogicalOperator getOperator() {
-        return operator;
     }
+
+    public List<SortClause> getSortings() {
+        return Collections.unmodifiableList(sortings);
+    }
+
+    /** Backward-compatible accessor for callers that only use one sort. */
+    public String getSorting() {
+        if (sortings.isEmpty()) return null;
+        SortClause first = sortings.get(0);
+        return first.getName() + " " + first.getSorting().name();
+    }
+
+    public LogicalOperator getOperator() { return operator; }
 
     public Filtering withOperator(LogicalOperator operator) {
-        this.operator = operator;
+        this.operator = Objects.requireNonNull(operator, "operator");
         return this;
     }
 
-    public String getSorting() {
-        return sorting;
+    private Filter filter(String name, Operator operator, Object value) {
+        return Filter.create().withName(name).withOperator(operator).withValue(value);
     }
 
+    public static final class SortClause {
+        private final String name;
+        private final Sorting sorting;
+
+        private SortClause(String name, Sorting sorting) {
+            this.name = name;
+            this.sorting = sorting;
+        }
+
+        public String getName() { return name; }
+        public Sorting getSorting() { return sorting; }
+    }
 }

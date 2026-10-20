@@ -1,9 +1,6 @@
 package org.atomiteam.jdbi.generic.dao;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -13,358 +10,403 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.jdbi.v3.core.Jdbi;
-import org.jdbi.v3.core.mapper.RowMapper;
 import org.jdbi.v3.core.statement.Query;
-import org.jdbi.v3.core.statement.StatementContext;
 
-import com.google.gson.Gson;
-
-/**
- * Generic CRUD DAO for arbitrary Java POJOs backed by JDBI.
- *
- * <p>Entities may optionally extend {@link BaseEntity}, {@link Entity}, or
- * {@link LongEntity}, but inheritance from a persistence base class is not
- * required. A conventional property named {@code id} is used as the primary
- * key when primary-key operations are requested.</p>
- *
- * @param <T> entity type
- */
+/** Generic CRUD DAO for arbitrary Java POJOs backed by JDBI. */
 public class GenericDao<T> {
+
+    private static final String SQL_IDENTIFIER_PATTERN = "[A-Za-z_][A-Za-z0-9_]*";
 
     private final Jdbi jdbi;
     private final Class<T> klazz;
     private final String table;
     private final ColumnNaming columnNaming;
-    private final Gson gson = new Gson();
+    private final EntityCodec<T> codec;
 
-    /**
-     * Creates a DAO using legacy identity column naming.
-     */
     public GenericDao(Jdbi jdbi, Class<T> klazz, String table) {
         this(jdbi, klazz, table, ColumnNaming.IDENTITY);
     }
 
-    /**
-     * Creates a DAO using the requested Java-property to database-column naming strategy.
-     */
     public GenericDao(Jdbi jdbi, Class<T> klazz, String table, ColumnNaming columnNaming) {
+        this(jdbi, klazz, table, columnNaming, new ReflectionEntityCodec<>(klazz, columnNaming));
+    }
+
+    public GenericDao(
+            Jdbi jdbi,
+            Class<T> klazz,
+            String table,
+            ColumnNaming columnNaming,
+            EntityCodec<T> codec) {
         this.jdbi = Objects.requireNonNull(jdbi, "jdbi");
         this.klazz = Objects.requireNonNull(klazz, "klazz");
-        this.table = Objects.requireNonNull(table, "table");
+        this.table = requireTableIdentifier(table);
         this.columnNaming = Objects.requireNonNull(columnNaming, "columnNaming");
+        this.codec = Objects.requireNonNull(codec, "codec");
     }
 
-    /**
-     * Inserts an entity and returns the same instance.
-     *
-     * <p>If an {@code id} property exists and is null, it is omitted from the
-     * INSERT and the generated database key is read back and assigned to the
-     * entity. If the id is already set, it is inserted normally.</p>
-     */
     public T insert(T entity) {
         Objects.requireNonNull(entity, "entity");
-        try {
-            Map<String, Object> data = toChanges(entity);
-            Field idField = findField(klazz, "id");
-            boolean generatedId = idField != null && getFieldValue(entity, idField) == null;
-            if (generatedId) {
-                data.remove("id");
-            }
-
-            if (data.isEmpty()) {
-                throw new IllegalArgumentException("Entity has no non-null values to insert into table " + table);
-            }
-
-            List<String> properties = data.keySet().stream().collect(Collectors.toList());
-            List<String> columns = properties.stream().map(this::columnName).collect(Collectors.toList());
-            List<String> placeholders = properties.stream().map(property -> ":" + property).collect(Collectors.toList());
-
-            String sql = String.format("INSERT INTO %s (%s) VALUES (%s)", table,
-                    String.join(", ", columns), String.join(", ", placeholders));
-
-            if (generatedId) {
-                Object generatedKey = jdbi.withHandle(handle -> handle.createUpdate(sql)
-                        .bindMap(data)
-                        .executeAndReturnGeneratedKeys(columnName("id"))
-                        .map((rs, ctx) -> rs.getObject(1))
-                        .one());
-                PropertyUtils.setPropertyValue(entity, klazz, idField, generatedKey);
-            } else {
-                jdbi.withHandle(handle -> handle.createUpdate(sql).bindMap(data).execute());
-            }
-            return entity;
-        } catch (Exception e) {
-            throw new RuntimeException("Error inserting entity into table " + table, e);
+        Map<String, Object> data = sanitized(codec.toStorage(entity, false), false);
+        Object currentId = codec.getId(entity);
+        boolean generatedId =
+                currentId == null
+                        || (currentId instanceof Number
+                                && ((Number) currentId).longValue() == 0L);
+        if (generatedId) data.remove("id");
+        if (data.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Entity has no non-null values to insert into table " + table);
         }
+
+        List<String> properties = new ArrayList<>(data.keySet());
+        List<String> columns =
+                properties.stream().map(this::columnName).collect(Collectors.toList());
+        String placeholders =
+                properties.stream()
+                        .map(this::bindName)
+                        .map(p -> ":" + p)
+                        .collect(Collectors.joining(", "));
+        String sql =
+                String.format(
+                        "INSERT INTO %s (%s) VALUES (%s)",
+                        table, String.join(", ", columns), placeholders);
+
+        if (generatedId) {
+            Object generated =
+                    jdbi.withHandle(
+                            handle ->
+                                    handle.createUpdate(sql)
+                                            .bindMap(data)
+                                            .executeAndReturnGeneratedKeys(columnName("id"))
+                                            .map((rs, ctx) -> rs.getObject(1))
+                                            .one());
+            codec.setId(entity, generated);
+        } else {
+            jdbi.withHandle(handle -> handle.createUpdate(sql).bindMap(data).execute());
+        }
+        return entity;
     }
 
-    /**
-     * Retrieves an entity by its primary key. String and numeric keys are supported.
-     */
     public Optional<T> getById(Object id) {
-        String sql = String.format("SELECT * FROM %s WHERE %s = ?", table, columnName("id"));
-        return jdbi.withHandle(handle -> handle.createQuery(sql).bind(0, id)
-                .map(new JsonRowMapper<>(klazz, columnNaming)).findFirst());
+        if (id == null) return Optional.empty();
+        String sql =
+                String.format("SELECT * FROM %s WHERE %s = :id", table, columnName("id"));
+        return jdbi.withHandle(
+                handle ->
+                        handle.createQuery(sql)
+                                .bind("id", id)
+                                .mapToMap()
+                                .findFirst()
+                                .map(codec::fromStorage));
     }
 
-    /**
-     * Retrieves the first entity matching all supplied Java-property values.
-     */
     public Optional<T> get(Map<String, ?> values) {
-        List<T> items = list(values);
-        return items.stream().findFirst();
+        return list(values).stream().findFirst();
     }
 
-    /**
-     * Retrieves all entities matching all supplied Java-property values.
-     */
     public List<T> list(Map<String, ?> values) {
         Filtering filtering = Filtering.create();
-        if (values != null) {
-            values.forEach(filtering::eq);
-        }
+        if (values != null) values.forEach(filtering::eq);
         return filter(filtering);
     }
 
     public List<T> filter(Filtering conditions) {
         Objects.requireNonNull(conditions, "conditions");
-        String whereClause = buildWhereClause(conditions);
-
-        StringBuilder pagination = new StringBuilder();
-        if (conditions.getSorting() != null) {
-            pagination.append(" ORDER BY ").append(mapSorting(conditions.getSorting()));
+        StringBuilder suffix = new StringBuilder();
+        if (!conditions.getSortings().isEmpty()) {
+            suffix.append(" ORDER BY ")
+                    .append(
+                            conditions.getSortings().stream()
+                                    .map(this::mapSorting)
+                                    .collect(Collectors.joining(", ")));
         }
         if (conditions.getLimit() != null) {
-            pagination.append(" LIMIT ").append(conditions.getLimit());
+            suffix.append(" LIMIT ").append(conditions.getLimit());
+            if (conditions.getOffset() != null) {
+                suffix.append(" OFFSET ").append(conditions.getOffset());
+            }
+        } else if (conditions.getOffset() != null) {
+            suffix.append(" LIMIT 18446744073709551615 OFFSET ").append(conditions.getOffset());
         }
-        if (conditions.getOffset() != null) {
-            pagination.append(" OFFSET ").append(conditions.getOffset());
-        }
-
-        String sql = String.format("SELECT * FROM %s %s %s", table, whereClause, pagination);
-        return jdbi.withHandle(handle -> {
-            Query query = handle.createQuery(sql);
-            bindQueryParameters(query, conditions);
-            return query.map(new JsonRowMapper<>(klazz, columnNaming)).list();
-        });
+        String sql =
+                String.format(
+                        "SELECT * FROM %s %s%s", table, buildWhereClause(conditions), suffix);
+        return jdbi.withHandle(
+                handle -> {
+                    Query query = handle.createQuery(sql);
+                    bindQueryParameters(query, conditions);
+                    return query.mapToMap().list().stream()
+                            .map(codec::fromStorage)
+                            .collect(Collectors.toList());
+                });
     }
 
     public Integer count(Filtering conditions) {
         Objects.requireNonNull(conditions, "conditions");
-        String whereClause = buildWhereClause(conditions);
-        String sql = String.format("SELECT count(*) FROM %s %s", table, whereClause);
-        return jdbi.withHandle(handle -> {
-            Query query = handle.createQuery(sql);
-            bindQueryParameters(query, conditions);
-            return query.mapTo(Integer.class).one();
-        });
+        String sql =
+                String.format("SELECT count(*) FROM %s %s", table, buildWhereClause(conditions));
+        return jdbi.withHandle(
+                handle -> {
+                    Query query = handle.createQuery(sql);
+                    bindQueryParameters(query, conditions);
+                    return query.mapTo(Integer.class).one();
+                });
     }
 
-    /**
-     * Deletes by primary-key value or by entity instance.
-     *
-     * <p>When an instance of this DAO's entity class is supplied, its {@code id}
-     * property is read reflectively. Otherwise the supplied object is treated as
-     * the primary-key value.</p>
-     */
     public int delete(Object idOrEntity) {
         Object id = idOrEntity;
         if (idOrEntity != null && klazz.isInstance(idOrEntity)) {
-            id = getIdValue(klazz.cast(idOrEntity));
+            id = codec.getId(klazz.cast(idOrEntity));
         }
         if (id == null) {
             throw new IllegalArgumentException("Primary key cannot be null for table " + table);
         }
-        String sql = String.format("DELETE FROM %s WHERE %s = ?", table, columnName("id"));
         Object finalId = id;
-        return jdbi.withHandle(handle -> handle.createUpdate(sql).bind(0, finalId).execute());
+        String sql =
+                String.format("DELETE FROM %s WHERE %s = :id", table, columnName("id"));
+        return jdbi.withHandle(
+                handle -> handle.createUpdate(sql).bind("id", finalId).execute());
     }
 
-    /**
-     * Updates all non-null properties except id and returns the affected row count.
-     */
+    public int delete(Filtering conditions) {
+        Objects.requireNonNull(conditions, "conditions");
+        if (conditions.filterings().isEmpty()) {
+            throw new IllegalArgumentException("Refusing unfiltered delete from " + table);
+        }
+        String sql =
+                String.format("DELETE FROM %s %s", table, buildWhereClause(conditions));
+        return jdbi.withHandle(
+                handle -> {
+                    org.jdbi.v3.core.statement.Update update = handle.createUpdate(sql);
+                    bindStatementParameters(update, conditions);
+                    return update.execute();
+                });
+    }
+
     public int update(T target) {
         Objects.requireNonNull(target, "target");
-        Object id = getIdValue(target);
+        Object id = codec.getId(target);
         if (id == null) {
-            throw new IllegalArgumentException("Entity id cannot be null when updating table " + table);
+            throw new IllegalArgumentException(
+                    "Entity id cannot be null when updating table " + table);
         }
 
-        Map<String, Object> changes = new LinkedHashMap<>(toChanges(target));
+        // codec.toStorage() has already converted application values to their storage form.
+        // Do not pass these values through codec.toStorageValue() again, otherwise encoded
+        // fields such as JSON are serialized twice.
+        Map<String, Object> changes = sanitized(codec.toStorage(target, false), false);
         changes.remove("id");
-        if (changes.isEmpty()) {
-            return 0;
-        }
-
-        String assignments = changes.keySet().stream()
-                .map(property -> String.format("%s = :%s", columnName(property), property))
-                .collect(Collectors.joining(", "));
-        String sql = String.format("UPDATE %s SET %s WHERE %s = :id", table,
-                assignments, columnName("id"));
-
-        return jdbi.withHandle(handle -> handle.createUpdate(sql)
-                .bind("id", id).bindMap(changes).execute());
+        return updateStorageValues(id, changes);
     }
 
-    /**
-     * Atomi-style convenience method: updates an entity and returns the same instance.
-     */
+    /** Explicit patch update. A null map value writes SQL NULL. */
+    public int update(Object id, Map<String, ?> requestedChanges) {
+        if (id == null) {
+            throw new IllegalArgumentException(
+                    "Entity id cannot be null when updating table " + table);
+        }
+        Objects.requireNonNull(requestedChanges, "changes");
+
+        Map<String, Object> requested = new LinkedHashMap<>();
+        requestedChanges.forEach(
+                (property, value) -> {
+                    if (!"id".equals(property)) {
+                        String mapped = requireMappedProperty(property);
+                        requested.put(mapped, codec.toStorageValue(mapped, value));
+                    }
+                });
+        return updateStorageValues(id, sanitized(requested, true));
+    }
+
+    private int updateStorageValues(Object id, Map<String, Object> changes) {
+        if (changes.isEmpty()) return 0;
+
+        String assignments =
+                changes.keySet().stream()
+                        .map(property -> columnName(property) + " = :" + bindName(property))
+                        .collect(Collectors.joining(", "));
+        String sql =
+                String.format(
+                        "UPDATE %s SET %s WHERE %s = :_genericDaoId",
+                        table, assignments, columnName("id"));
+        return jdbi.withHandle(
+                handle -> {
+                    org.jdbi.v3.core.statement.Update update =
+                            handle.createUpdate(sql).bind("_genericDaoId", id);
+                    changes.forEach(update::bind);
+                    return update.execute();
+                });
+    }
+
     public T updateAndReturn(T target) {
         update(target);
         return target;
     }
 
-    private Map<String, Object> toChanges(T entity) {
-        Map<String, Object> changes = new LinkedHashMap<>();
-        Class<?> currentClass = entity.getClass();
-        try {
-            while (currentClass != null) {
-                for (Field field : currentClass.getDeclaredFields()) {
-                    if (Modifier.isStatic(field.getModifiers()) || field.isAnnotationPresent(Transient.class)) {
-                        continue;
-                    }
-                    field.setAccessible(true);
-                    Object value = field.get(entity);
-                    if (value != null) {
-                        changes.put(field.getName(), field.isAnnotationPresent(Json.class)
-                                ? gson.toJson(value)
-                                : value);
-                    }
-                }
-                currentClass = currentClass.getSuperclass();
-            }
-            return changes;
-        } catch (IllegalAccessException e) {
-            throw new IllegalStateException("Failed to inspect entity " + entity.getClass().getName(), e);
-        }
+    public T fromStorage(Map<String, Object> values) {
+        return codec.fromStorage(values);
     }
 
-    private Object getIdValue(T entity) {
-        Field idField = findField(klazz, "id");
-        if (idField == null) {
-            throw new IllegalStateException("Entity " + klazz.getName() + " has no id property");
-        }
-        return getFieldValue(entity, idField);
+    public Map<String, Object> toStorage(T entity, boolean includeNulls) {
+        return codec.toStorage(entity, includeNulls);
     }
 
-    private static Object getFieldValue(Object entity, Field field) {
-        try {
-            field.setAccessible(true);
-            return field.get(entity);
-        } catch (IllegalAccessException e) {
-            throw new IllegalStateException("Failed to read property " + field.getName(), e);
-        }
+    private Map<String, Object> sanitized(Map<String, Object> input, boolean allowNull) {
+        Map<String, Object> output = new LinkedHashMap<>();
+        if (input == null) return output;
+        input.forEach(
+                (property, value) -> {
+                    if (allowNull || value != null) {
+                        String mapped = requireMappedProperty(property);
+                        output.put(mapped, value);
+                    }
+                });
+        return output;
     }
 
     private String buildWhereClause(Filtering conditions) {
-        if (conditions.filterings().isEmpty()) {
-            return "";
-        }
+        List<Filter> filters = conditions.filterings();
+        if (filters.isEmpty()) return "";
 
-        String clause = conditions.filterings().stream()
-                .map(filter -> {
-                    String property = filter.getName();
-                    String column = columnName(property);
-                    switch (filter.getOperator()) {
-                        case In:
-                            return String.format("%s IN (<%s>)", column, property);
-                        case NotIn:
-                            return String.format("%s NOT IN (<%s>)", column, property);
-                        case Like:
-                            return String.format("%s LIKE :%s", column, property);
-                        case NotLike:
-                            return String.format("%s NOT LIKE :%s", column, property);
-                        case Eq:
-                            return String.format("%s = :%s", column, property);
-                        case NotEq:
-                            return String.format("%s != :%s", column, property);
-                        default:
-                            throw new IllegalArgumentException("Unsupported operator: " + filter.getOperator());
-                    }
-                })
-                .collect(Collectors.joining(" " + conditions.getOperator().name() + " "));
-        return "WHERE " + clause;
+        List<String> clauses = new ArrayList<>();
+        for (int i = 0; i < filters.size(); i++) {
+            Filter filter = filters.get(i);
+            String property = requireMappedProperty(filter.getName());
+            String column = columnName(property);
+            String parameter = filterParameter(i);
+            switch (filter.getOperator()) {
+                case In:
+                    clauses.add(column + " IN (<" + parameter + ">)");
+                    break;
+                case NotIn:
+                    clauses.add(column + " NOT IN (<" + parameter + ">)");
+                    break;
+                case Like:
+                    clauses.add(column + " LIKE :" + parameter);
+                    break;
+                case NotLike:
+                    clauses.add(column + " NOT LIKE :" + parameter);
+                    break;
+                case Eq:
+                    clauses.add(column + " = :" + parameter);
+                    break;
+                case NotEq:
+                    clauses.add(column + " != :" + parameter);
+                    break;
+                case Lt:
+                    clauses.add(column + " < :" + parameter);
+                    break;
+                case Lte:
+                    clauses.add(column + " <= :" + parameter);
+                    break;
+                case Gt:
+                    clauses.add(column + " > :" + parameter);
+                    break;
+                case Gte:
+                    clauses.add(column + " >= :" + parameter);
+                    break;
+                case IsNull:
+                    clauses.add(column + " IS NULL");
+                    break;
+                case IsNotNull:
+                    clauses.add(column + " IS NOT NULL");
+                    break;
+                default:
+                    throw new IllegalArgumentException("Unsupported operator: " + filter.getOperator());
+            }
+        }
+        return "WHERE " + String.join(" " + conditions.getOperator().name() + " ", clauses);
     }
 
     private void bindQueryParameters(Query query, Filtering conditions) {
-        for (Filter filter : conditions.filterings()) {
-            String key = filter.getName();
-            Object value = filter.getValue();
-            if (value instanceof Collection<?>) {
-                query.bindList(key, (Collection<?>) value);
-            } else {
-                query.bind(key, value);
+        bindParameters(
+                (name, value) -> {
+                    if (value instanceof Collection<?>) {
+                        query.bindList(name, (Collection<?>) value);
+                    } else {
+                        query.bind(name, value);
+                    }
+                },
+                conditions);
+    }
+
+    private void bindStatementParameters(
+            org.jdbi.v3.core.statement.SqlStatement<?> statement, Filtering conditions) {
+        bindParameters(
+                (name, value) -> {
+                    if (value instanceof Collection<?>) {
+                        statement.bindList(name, (Collection<?>) value);
+                    } else {
+                        statement.bind(name, value);
+                    }
+                },
+                conditions);
+    }
+
+    private void bindParameters(
+            java.util.function.BiConsumer<String, Object> binder, Filtering conditions) {
+        List<Filter> filters = conditions.filterings();
+        for (int i = 0; i < filters.size(); i++) {
+            Filter filter = filters.get(i);
+            if (filter.getOperator() == Operator.IsNull
+                    || filter.getOperator() == Operator.IsNotNull) {
+                continue;
             }
+            String property = requireMappedProperty(filter.getName());
+            binder.accept(filterParameter(i), codec.toStorageValue(property, filter.getValue()));
         }
     }
 
-    private String mapSorting(String sorting) {
-        int separator = sorting.lastIndexOf(' ');
-        if (separator < 0) {
-            return columnName(sorting);
-        }
-        String property = sorting.substring(0, separator);
-        return columnName(property) + sorting.substring(separator);
+    private String filterParameter(int index) {
+        return "_f" + index;
+    }
+
+    private String mapSorting(Filtering.SortClause clause) {
+        String property = requireMappedProperty(clause.getName());
+        return columnName(property) + " " + clause.getSorting().name();
     }
 
     private String columnName(String propertyName) {
-        Field field = findField(klazz, propertyName);
-        if (field != null && field.isAnnotationPresent(Column.class)) {
-            return field.getAnnotation(Column.class).value();
-        }
-        return columnNaming.toColumnName(propertyName);
+        String property = requireMappedProperty(propertyName);
+        return requireIdentifier(codec.columnName(property, columnNaming), "column");
     }
 
-    private static Field findField(Class<?> type, String name) {
-        Class<?> current = type;
-        while (current != null) {
-            try {
-                return current.getDeclaredField(name);
-            } catch (NoSuchFieldException ignored) {
-                current = current.getSuperclass();
-            }
+    private String requireMappedProperty(String propertyName) {
+        if (propertyName == null || propertyName.isBlank()) {
+            throw new IllegalArgumentException("Property name cannot be blank");
         }
-        return null;
-    }
-}
-
-class JsonRowMapper<T> implements RowMapper<T> {
-    private final Class<T> type;
-    private final Gson gson = new Gson();
-    private final ColumnNaming columnNaming;
-
-    JsonRowMapper(Class<T> type, ColumnNaming columnNaming) {
-        this.type = type;
-        this.columnNaming = columnNaming;
+        requireIdentifier(propertyName, "property");
+        if (!codec.isMappedProperty(propertyName)) {
+            throw new IllegalArgumentException(
+                    "Unknown or unmapped property '"
+                            + propertyName
+                            + "' for entity "
+                            + klazz.getName());
+        }
+        return propertyName;
     }
 
-    @Override
-    public T map(ResultSet rs, StatementContext ctx) throws SQLException {
-        try {
-            T instance = type.getDeclaredConstructor().newInstance();
-            Class<?> currentClass = type;
-            while (currentClass != null) {
-                for (Field field : currentClass.getDeclaredFields()) {
-                    if (!Modifier.isStatic(field.getModifiers()) && !field.isAnnotationPresent(Transient.class)) {
-                        field.setAccessible(true);
-                        String column = field.isAnnotationPresent(Column.class)
-                                ? field.getAnnotation(Column.class).value()
-                                : columnNaming.toColumnName(field.getName());
-                        try {
-                            Object value = field.isAnnotationPresent(Json.class)
-                                    ? gson.fromJson(rs.getString(column), field.getType())
-                                    : rs.getObject(column);
-                            PropertyUtils.setPropertyValue(instance, type, field, value);
-                        } catch (SQLException ignored) {
-                            // A partial SELECT may legitimately omit a mapped field.
-                        }
-                    }
-                }
-                currentClass = currentClass.getSuperclass();
-            }
-            return instance;
-        } catch (Exception e) {
-            throw new SQLException("Failed to map result set to " + type.getName(), e);
+    private String bindName(String propertyName) {
+        return requireIdentifier(requireMappedProperty(propertyName), "bind property");
+    }
+
+    /** Allows qualified table names while validating every identifier component. */
+    private static String requireTableIdentifier(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("Invalid SQL table identifier: null");
         }
+        // Keep empty components so leading, trailing and consecutive dots are rejected.
+        for (String component : value.split("\\.", -1)) {
+            requireIdentifier(component, "table");
+        }
+        return value;
+    }
+
+    private static String requireIdentifier(String value, String description) {
+        if (value == null || !value.matches(SQL_IDENTIFIER_PATTERN)) {
+            throw new IllegalArgumentException(
+                    "Invalid SQL " + description + " identifier: " + value);
+        }
+        return value;
     }
 }
