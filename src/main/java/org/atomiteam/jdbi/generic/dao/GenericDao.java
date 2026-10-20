@@ -104,6 +104,18 @@ public class GenericDao<T> {
         return updateStorageValues(keyFilter(keys), encodeChanges(changes));
     }
 
+    /**
+     * Replaces all mapped non-identity properties, including SQL NULLs, guarded
+     * by the supplied composite/optimistic key and this DAO's mandatory scope.
+     * JSON is encoded exactly once. Omit database-managed fields from the POJO.
+     */
+    public int replaceByKey(Map<String, ?> keys, T entity) {
+        Objects.requireNonNull(entity, "entity");
+        Map<String, Object> changes = sanitized(codec.toStorage(entity, true), true);
+        changes.remove("id");
+        return updateStorageValues(keyFilter(keys), changes);
+    }
+
     public T insert(T entity) {
         Objects.requireNonNull(entity, "entity");
         Map<String, Object> data = sanitized(codec.toStorage(entity, false), false);

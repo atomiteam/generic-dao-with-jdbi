@@ -17,7 +17,7 @@ class DsqlTransactionsTest {
         AtomicInteger calls=new AtomicInteger();
         int result=DsqlTransactions.run(db,3,h->calls.incrementAndGet());
         assertEquals(2,result);
-        org.mockito.Mockito.verify(first).rollback();org.mockito.Mockito.verify(first).close();
+        org.mockito.Mockito.verify(first,org.mockito.Mockito.never()).rollback();org.mockito.Mockito.verify(first).close();
         org.mockito.Mockito.verify(second).commit();org.mockito.Mockito.verify(second).close();
         org.mockito.Mockito.verify(second,org.mockito.Mockito.never()).rollback();
     }

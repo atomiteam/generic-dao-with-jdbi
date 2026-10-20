@@ -62,6 +62,10 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
                     String column = field.isAnnotationPresent(Column.class)
                             ? field.getAnnotation(Column.class).value()
                             : columnNaming.toColumnName(field.getName());
+                    // JDBC labels never include the SQL identifier's surrounding quotes.
+                    if (column.startsWith("\"") && column.endsWith("\"")) {
+                        column = column.substring(1, column.length() - 1);
+                    }
                     String label = column;
                     if (!values.containsKey(label)) {
                         java.util.List<String> matches = new java.util.ArrayList<>();
@@ -72,7 +76,7 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
                     }
                     Object value = values.get(label);
                     if (field.isAnnotationPresent(Json.class) && value != null) {
-                        value = gson.fromJson(String.valueOf(value), field.getType());
+                        value = gson.fromJson(String.valueOf(value), field.getGenericType());
                     }
                     PropertyUtils.setPropertyValue(instance, type, field, value);
                 }
@@ -81,6 +85,28 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
             return instance;
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Failed to map storage values to " + type.getName(), e);
+        }
+    }
+
+    /**
+     * Maps Java property values to a POJO, before SQL encoding. Unknown properties
+     * are rejected; explicit nulls remain null. JSON values are converted using
+     * the field's generic type, including JsonElement for lossless numeric tokens.
+     */
+    public T fromProperties(Map<String, ?> values) {
+        try {
+            T instance = type.getDeclaredConstructor().newInstance();
+            for (Map.Entry<String, ?> entry : values.entrySet()) {
+                Field field = requireField(entry.getKey());
+                Object value = entry.getValue();
+                if (value != null && field.isAnnotationPresent(Json.class)) {
+                    value = gson.fromJson(gson.toJson(value), field.getGenericType());
+                }
+                PropertyUtils.setPropertyValue(instance, type, field, value);
+            }
+            return instance;
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to map properties to " + type.getName(), e);
         }
     }
 

@@ -10,6 +10,16 @@ public enum ColumnNaming {
             return propertyName;
         }
     },
+    /** Existing case-sensitive PostgreSQL/DSQL columns, without a custom codec. */
+    QUOTED_IDENTITY {
+        @Override
+        public String toColumnName(String propertyName) {
+            if (propertyName == null || !propertyName.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                throw new IllegalArgumentException("Invalid column property: " + propertyName);
+            }
+            return "\"" + propertyName + "\"";
+        }
+    },
     SNAKE_CASE {
         @Override
         public String toColumnName(String propertyName) {

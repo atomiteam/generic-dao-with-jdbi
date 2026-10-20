@@ -41,6 +41,13 @@ public class PropertyUtils {
         if (value == null || targetType.isInstance(value)) {
             return value;
         }
+        if (value instanceof String) {
+            String text = (String) value;
+            if (targetType == java.time.Instant.class) return java.time.Instant.parse(text);
+            if (targetType == java.time.OffsetDateTime.class) return java.time.OffsetDateTime.parse(text);
+            if (targetType == java.time.LocalDate.class) return java.time.LocalDate.parse(text);
+            if (targetType == java.time.LocalDateTime.class) return java.time.LocalDateTime.parse(text);
+        }
         if (targetType == java.time.Instant.class) {
             if (value instanceof java.sql.Timestamp) return ((java.sql.Timestamp)value).toInstant();
             if (value instanceof java.time.OffsetDateTime) return ((java.time.OffsetDateTime)value).toInstant();
