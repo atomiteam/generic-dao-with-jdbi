@@ -293,3 +293,13 @@ only its acquired read connection. Entity CRUD belongs in GenericDao.
 Applications with idempotent replay can explicitly supply additional retry states
 and an error factory to `DsqlTransactions.run`. The default remains 40001 only.
 Commit failures rely on JDBI's rollback rather than issuing a duplicate rollback.
+
+### Design, operation coverage and quality gates
+
+See [design and test coverage](docs/DESIGN_AND_TEST_COVERAGE.md) for the public-operation
+matrix, internal responsibilities and native integration limits. Run `mvn verify`
+for unit tests and the JaCoCo gate (90% line / 80% branch coverage).
+CI publishes HTML/XML coverage and test results. Java 11 remains the library target;
+formatting uses Java 17+ with `bash scripts/format-java.sh --check` or `--write`.
+PostgreSQL and MySQL contracts run separately; DSQL driver-level tests are not a live
+AWS/IAM validation.

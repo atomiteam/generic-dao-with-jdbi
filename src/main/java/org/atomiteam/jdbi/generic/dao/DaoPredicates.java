@@ -1,28 +1,32 @@
 package org.atomiteam.jdbi.generic.dao;
 
+import org.atomiteam.jdbi.generic.internal.StatementBindings;
+import org.jdbi.v3.core.statement.SqlStatement;
+
 import java.util.*;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import org.atomiteam.jdbi.generic.internal.StatementBindings;
-import org.jdbi.v3.core.statement.SqlStatement;
 
 /** Compiles one scoped predicate snapshot and binds the same snapshot for every CRUD operation. */
 final class DaoPredicates {
     private final String sql;
-    private final Map<String,Object> values;
+    private final Map<String, Object> values;
 
-    private DaoPredicates(String sql, Map<String,Object> values) {
+    private DaoPredicates(String sql, Map<String, Object> values) {
         this.sql = sql;
         this.values = Collections.unmodifiableMap(values);
     }
 
-    static DaoPredicates compile(Filtering filters, Map<String,Object> scope,
-            Function<String,String> column, BiFunction<String,Object,Object> encode) {
+    static DaoPredicates compile(
+            Filtering filters,
+            Map<String, Object> scope,
+            Function<String, String> column,
+            BiFunction<String, Object, Object> encode) {
         List<String> clauses = new ArrayList<>();
-        Map<String,Object> bindings = new LinkedHashMap<>();
+        Map<String, Object> bindings = new LinkedHashMap<>();
         int scopedIndex = 0;
-        for (Map.Entry<String,Object> entry : scope.entrySet()) {
+        for (Map.Entry<String, Object> entry : scope.entrySet()) {
             String parameter = "_scope" + scopedIndex++;
             clauses.add(column.apply(entry.getKey()) + " = :" + parameter);
             bindings.put(parameter, entry.getValue());
@@ -40,20 +44,31 @@ final class DaoPredicates {
                 if (!(filter.getValue() instanceof Collection<?>))
                     throw new IllegalArgumentException("Collection required for " + operator);
                 Collection<?> items = (Collection<?>) filter.getValue();
-                if (items.isEmpty()) throw new IllegalArgumentException("Collection cannot be empty");
+                if (items.isEmpty())
+                    throw new IllegalArgumentException("Collection cannot be empty");
                 requested.add(propertyColumn + " " + operator.sql() + " (<" + parameter + ">)");
-                bindings.put(parameter, items.stream().map(value -> encode.apply(name,value))
-                        .collect(Collectors.toList()));
+                bindings.put(
+                        parameter,
+                        items.stream()
+                                .map(value -> encode.apply(name, value))
+                                .collect(Collectors.toList()));
             } else {
                 requested.add(propertyColumn + " " + operator.sql() + " :" + parameter);
-                bindings.put(parameter, encode.apply(name,filter.getValue()));
+                bindings.put(parameter, encode.apply(name, filter.getValue()));
             }
         }
         if (!requested.isEmpty())
-            clauses.add("(" + String.join(" " + filters.getOperator().name() + " ",requested) + ")");
-        return new DaoPredicates(clauses.isEmpty() ? "" : "WHERE " + String.join(" AND ",clauses),bindings);
+            clauses.add(
+                    "(" + String.join(" " + filters.getOperator().name() + " ", requested) + ")");
+        return new DaoPredicates(
+                clauses.isEmpty() ? "" : "WHERE " + String.join(" AND ", clauses), bindings);
     }
 
-    String sql() { return sql; }
-    void bind(SqlStatement<?> statement) { StatementBindings.bind(statement,values); }
+    String sql() {
+        return sql;
+    }
+
+    void bind(SqlStatement<?> statement) {
+        StatementBindings.bind(statement, values);
+    }
 }

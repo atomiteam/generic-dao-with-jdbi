@@ -3,6 +3,7 @@ package org.atomiteam.jdbi.generic.dao;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
+
 import java.lang.reflect.Field;
 import java.util.*;
 
@@ -13,16 +14,19 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
     private final EntityModel<T> model;
     private final ColumnNaming naming;
 
-    public ReflectionEntityCodec(Class<T> type) { this(type, ColumnNaming.IDENTITY); }
+    public ReflectionEntityCodec(Class<T> type) {
+        this(type, ColumnNaming.IDENTITY);
+    }
 
     public ReflectionEntityCodec(Class<T> type, ColumnNaming naming) {
         this.model = EntityModel.of(type);
         this.naming = Objects.requireNonNull(naming, "naming");
     }
 
-    @Override public Map<String,Object> toStorage(T entity, boolean includeNulls) {
+    @Override
+    public Map<String, Object> toStorage(T entity, boolean includeNulls) {
         Objects.requireNonNull(entity, "entity");
-        Map<String,Object> values = new LinkedHashMap<>();
+        Map<String, Object> values = new LinkedHashMap<>();
         for (Field field : model.fields()) {
             Object value = model.read(entity, field);
             if (value != null || includeNulls)
@@ -31,7 +35,8 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
         return values;
     }
 
-    @Override public T fromStorage(Map<String,Object> values) {
+    @Override
+    public T fromStorage(Map<String, Object> values) {
         Objects.requireNonNull(values, "values");
         T entity = model.create();
         for (Field field : model.fields()) {
@@ -45,32 +50,51 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
         return entity;
     }
 
-    /** Maps validated Java properties, including typed JSON and ISO dates; unknown keys are rejected. */
-    public T fromProperties(Map<String,?> values) {
+    /**
+     * Maps validated Java properties, including typed JSON and ISO dates; unknown keys are
+     * rejected.
+     */
+    public T fromProperties(Map<String, ?> values) {
         Objects.requireNonNull(values, "values");
         T entity = model.create();
-        values.forEach((name, requested) -> {
-            Field field = model.require(name);
-            Object value = requested;
-            if (value != null && field.isAnnotationPresent(Json.class))
-                value = PROPERTY_JSON.fromJson(PROPERTY_JSON.toJson(value), field.getGenericType());
-            model.write(entity, field, value);
-        });
+        values.forEach(
+                (name, requested) -> {
+                    Field field = model.require(name);
+                    Object value = requested;
+                    if (value != null && field.isAnnotationPresent(Json.class))
+                        value =
+                                PROPERTY_JSON.fromJson(
+                                        PROPERTY_JSON.toJson(value), field.getGenericType());
+                    model.write(entity, field, value);
+                });
         return entity;
     }
 
-    @Override public boolean isMappedProperty(String name) { return model.contains(name); }
-
-    @Override public String columnName(String name, ColumnNaming requestedNaming) {
-        Field field = model.require(name);
-        return field.isAnnotationPresent(Column.class)
-                ? field.getAnnotation(Column.class).value() : requestedNaming.toColumnName(name);
+    @Override
+    public boolean isMappedProperty(String name) {
+        return model.contains(name);
     }
 
-    @Override public Object getId(T entity) { return model.read(entity, model.require("id")); }
-    @Override public void setId(T entity, Object id) { model.write(entity, model.require("id"), id); }
+    @Override
+    public String columnName(String name, ColumnNaming requestedNaming) {
+        Field field = model.require(name);
+        return field.isAnnotationPresent(Column.class)
+                ? field.getAnnotation(Column.class).value()
+                : requestedNaming.toColumnName(name);
+    }
 
-    @Override public Object toStorageValue(String name, Object value) {
+    @Override
+    public Object getId(T entity) {
+        return model.read(entity, model.require("id"));
+    }
+
+    @Override
+    public void setId(T entity, Object id) {
+        model.write(entity, model.require("id"), id);
+    }
+
+    @Override
+    public Object toStorageValue(String name, Object value) {
         boolean json = isJsonProperty(name);
         if (value == null || !json) return value;
         return value instanceof JsonElement ? value.toString() : JSON.toJson(value);
@@ -81,14 +105,17 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
         return model.require(name).isAnnotationPresent(Json.class);
     }
 
-    private static String label(Map<String,?> values, String column) {
-        String unquoted = column.startsWith("\"") && column.endsWith("\"")
-                ? column.substring(1, column.length() - 1) : column;
+    private static String label(Map<String, ?> values, String column) {
+        String unquoted =
+                column.startsWith("\"") && column.endsWith("\"")
+                        ? column.substring(1, column.length() - 1)
+                        : column;
         if (values.containsKey(unquoted)) return unquoted;
         String match = null;
         for (String key : values.keySet()) {
             if (!key.equalsIgnoreCase(unquoted)) continue;
-            if (match != null) throw new IllegalArgumentException("Ambiguous column label: " + unquoted);
+            if (match != null)
+                throw new IllegalArgumentException("Ambiguous column label: " + unquoted);
             match = key;
         }
         return match;

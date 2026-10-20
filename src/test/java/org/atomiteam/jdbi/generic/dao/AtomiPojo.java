@@ -1,8 +1,6 @@
 package org.atomiteam.jdbi.generic.dao;
 
-/**
- * Plain POJO intentionally not extending any persistence base class.
- */
+/** Plain POJO intentionally not extending any persistence base class. */
 public class AtomiPojo {
     private Long id;
     private String displayName;
