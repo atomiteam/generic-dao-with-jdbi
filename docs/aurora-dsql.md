@@ -1,7 +1,7 @@
 # PostgreSQL and Aurora DSQL integration
 
 The DAO operates through JDBI/JDBC, not AWS database-specific SQL APIs. It emits unquoted
-identifiers, standard parameterized CRUD, and PostgreSQL-compatible OFFSET/keyset SQL.
+identifiers by default, standard parameterized CRUD, and PostgreSQL-compatible OFFSET/keyset SQL.
 The DSQL helpers add JSON binding and bounded whole-transaction retries. The application
 still owns tenant/workspace authorization, optimistic versions, quotas, idempotency,
 transactional outbox effects, and any schema/data migration.
@@ -52,8 +52,11 @@ IAM permission changes, data copying, or DDL is performed by these helpers.
   unsupported JSON search/index expressions automatically.
 - Define column names unquoted in new SQL/schema source. PostgreSQL physically folds
   them to lowercase; the codec maps folded labels back to camelCase Java properties.
-  Existing quoted identifiers require a reviewed schema migration. This change does
-  not rewrite VolaCRM's draft schema or migrate any existing database.
+  Existing quoted identifiers can instead be preserved by a custom codec returning
+  validated quoted column names; qualified table names also accept quoted components.
+  Only identifier characters inside one quote pair are accepted. Switching existing
+  physical names to unquoted ones still requires a reviewed schema migration. This
+  change does not rewrite schemas or migrate any database.
 - DDL and DML belong in separate transactions. Create asynchronous indexes using the
   documented DSQL process, not a generic PostgreSQL schema runner.
 - Keyset continuation values require application-side signing, query/scope binding,

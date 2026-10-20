@@ -252,14 +252,17 @@ bind them to scope/filter/order/principal, validate types, and enforce authoriza
 These values are not an authenticated cursor token. Do not mix seek order with offsets.
 Concurrent edits do not provide a frozen snapshot across separate page requests.
 
-### Unquoted camelCase
+### Column names and camelCase
 
 Keep Java fields and SQL source names such as `displayName` unquoted. PostgreSQL/DSQL
 folds that SQL identifier to physical `displayname`; row mapping now resolves those
 folded labels case-insensitively while preserving Java `displayName`. SQL generation
-does not introduce quoted names. Reserved SQL words still require a different mapped
-column name. Existing quoted mixed-case columns need an explicit migration before
-switching to unquoted SQL; deleting quote characters does not rename stored columns.
+does not introduce quoted names by default. To preserve an existing quoted column,
+a custom EntityCodec may return a quoted identifier such as `"displayName"` from
+`columnName`. Qualified table names can likewise use quoted components. Each component
+must contain only a valid identifier; expressions and embedded quotes are rejected.
+Existing quoted mixed-case columns need an explicit migration before switching to
+unquoted SQL; deleting quote characters does not rename stored columns.
 
 Use `DsqlSupport.dao(...)` for `@Json` fields: JSON is encoded once and bound using
 JDBC `Types.OTHER` so PostgreSQL/DSQL JSON/JSONB columns do not receive VARCHAR values.
