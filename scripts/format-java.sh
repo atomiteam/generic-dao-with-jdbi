@@ -12,5 +12,10 @@ trap 'rm -f -- "$formatter"' EXIT
 curl --fail --silent --show-error --location --max-time 60 \
   https://repo.maven.apache.org/maven2/com/google/googlejavaformat/google-java-format/1.24.0/google-java-format-1.24.0-all-deps.jar \
   --output "$formatter"
-mapfile -t sources < <(rg --files src/main/java src/test/java -g '*.java' | sort)
+if command -v rg >/dev/null 2>&1; then
+  mapfile -t sources < <(rg --files src/main/java src/test/java -g '*.java' | sort)
+else
+  mapfile -t sources < <(find src/main/java src/test/java -type f -name '*.java' | sort)
+fi
+if [ "${#sources[@]}" -eq 0 ]; then echo "No Java sources found" >&2; exit 1; fi
 java -jar "$formatter" --aosp --skip-reflowing-long-strings "${options[@]}" "${sources[@]}"

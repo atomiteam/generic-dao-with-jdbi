@@ -37,6 +37,8 @@ class TypedPostgresContractTest {
             var stored = dao.scoped(Map.of("tenantId","a")).getById("same").orElseThrow();
             assertEquals(9007199254740993L,stored.sourceDocument.getAsJsonObject().get("large").getAsLong());
             assertTrue(stored.sourceDocument.getAsJsonObject().get("explicitNull").isJsonNull());
+            assertEquals(1,dao.scoped(Map.of("tenantId","a")).filter(
+                    Filtering.create().in("sourceDocument",List.of(stored.sourceDocument))).size());
             values.put("tenantId","a"); values.put("version",2L); values.put("displayName",null);
             assertEquals(1,dao.scoped(Map.of("tenantId","a")).replaceByKey(
                     Map.of("id","same","version",1L),codec.fromProperties(values)));
