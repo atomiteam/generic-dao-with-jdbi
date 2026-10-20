@@ -31,6 +31,8 @@ class DatabaseContractTest {
                 all.scoped(Map.of("tenantId",tenant,"workspaceId","w")).using(h).insert(row);return null;
             });
             Row loaded=dao.getById("same").orElseThrow();assertEquals("a",loaded.tenantId);assertEquals("Alpha",loaded.displayName);assertEquals("world",loaded.details.get("hello"));
+            assertEquals(1,dao.filter(Filtering.create().withOffset(0L)).size());
+            assertEquals(1,new JdbiQueryExecutor(db).maps(JdbiQuery.select("SELECT * FROM "+table).eq("tenantId","a").offset(0L)).size());
             assertThrows(IllegalStateException.class,()->DsqlTransactions.run(db,2,h->{dao.using(h).update("same",Map.of("displayName","Rollback"));throw new IllegalStateException("abort");}));
             assertEquals("Alpha",dao.getById("same").orElseThrow().displayName);
             assertEquals(1,dao.updateByKey(Map.of("id","same","version",1L),Map.of("version",2L)));

@@ -183,7 +183,7 @@ public class GenericDao<T> {
                 suffix.append(" OFFSET ").append(conditions.getOffset());
             }
         } else if (conditions.getOffset() != null) {
-            suffix.append(" OFFSET ").append(conditions.getOffset());
+            suffix.append(" LIMIT ").append(Long.MAX_VALUE).append(" OFFSET ").append(conditions.getOffset());
         }
         String sql =
                 String.format(

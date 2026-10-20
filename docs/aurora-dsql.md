@@ -100,3 +100,16 @@ DSQL rehearsal with the consuming application.
 - [Supported SQL](https://docs.aws.amazon.com/aurora-dsql/latest/userguide/working-with-postgresql-compatibility-supported-sql-features.html)
 - [DSQL DDL transaction rules](https://docs.aws.amazon.com/aurora-dsql/latest/userguide/working-with-ddl.html)
 - [JDBI 3.49.6 guide](https://jdbi.org/releases/3.49.6/)
+
+## Regression validation
+
+See [the 20 October regression report](REGRESSION_CHECK_2026-10-20.md) for baseline/candidate
+results and the two reproduced fixes. Offset-only paging uses the maximum signed bigint
+as an implicit limit to remain compatible with both PostgreSQL/DSQL and MySQL. Dynamic
+predicate fragments are grouped before combining them with AND.
+
+The database-contract workflow also runs a MySQL 8.4 compatibility job. Its optional
+local profile uses `DAO_MYSQL_JDBC_URL`, `DAO_MYSQL_JDBC_USER`, and
+`DAO_MYSQL_JDBC_PASSWORD` with `mvn -Pmysql-contract verify`. This contract creates and
+drops a randomly named test table; use a disposable database. Without that URL, the
+MySQL contract is explicitly skipped as well.

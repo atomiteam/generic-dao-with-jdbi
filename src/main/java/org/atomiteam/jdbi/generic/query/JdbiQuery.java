@@ -206,7 +206,7 @@ public final class JdbiQuery {
 
     public Map<String, Object> bindings() {
         Map<String, Object> result = new LinkedHashMap<>(bindings);
-        if (limit != null) result.put("_query_limit", limit);
+        if (limit != null || offset != null) result.put("_query_limit", limit == null ? Long.MAX_VALUE : limit);
         if (offset != null) result.put("_query_offset", offset);
         return Collections.unmodifiableMap(result);
     }
@@ -239,14 +239,14 @@ public final class JdbiQuery {
         if (!predicates.isEmpty()) {
             String lower = baseSql.toLowerCase(Locale.ROOT);
             result.append(lower.matches("(?s).*\\bwhere\\b.*") ? " AND " : " WHERE ")
-                  .append(String.join(" AND ", predicates));
+                  .append(predicates.stream().map(predicate -> "(" + predicate + ")").collect(java.util.stream.Collectors.joining(" AND ")));
         }
         if (includeOrder && !orderings.isEmpty()) result.append(" ORDER BY ").append(String.join(", ", orderings));
         if (includePaging) {
             if (limit != null) {
                 result.append(" LIMIT :_query_limit");
                 if (offset != null) result.append(" OFFSET :_query_offset");
-            } else if (offset != null) result.append(" OFFSET :_query_offset");
+            } else if (offset != null) result.append(" LIMIT :_query_limit OFFSET :_query_offset");
         }
         return result.toString();
     }
