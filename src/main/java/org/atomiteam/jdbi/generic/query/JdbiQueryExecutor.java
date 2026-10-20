@@ -46,6 +46,35 @@ public final class JdbiQueryExecutor {
         return handle == null ? jdbi.withHandle(h -> operation.apply(h)) : operation.apply(handle);
     }
 
+    /** A positional value with an explicit JDBC type, e.g. Types.OTHER for inferred PostgreSQL filters. */
+    public static final class TypedValue {
+        private final Object value;
+        private final int sqlType;
+        public TypedValue(Object value, int sqlType) { this.value = value; this.sqlType = sqlType; }
+    }
+
+    /**
+     * Executes trusted application-compiled SQL with positional parameters and a row mapper.
+     * SQL identifiers and authorization predicates must be supplied by an application allowlist.
+     * Borrows using(handle) with the same lifecycle rules as other executor methods.
+     */
+    public <T> List<T> rows(String sql, List<?> parameters, int timeoutSeconds,
+            org.jdbi.v3.core.mapper.RowMapper<T> mapper) {
+        Objects.requireNonNull(sql); Objects.requireNonNull(parameters); Objects.requireNonNull(mapper);
+        if (timeoutSeconds < 1) throw new IllegalArgumentException("timeoutSeconds must be positive");
+        return withHandle(h -> {
+            org.jdbi.v3.core.statement.Query statement = h.createQuery(sql).setQueryTimeout(timeoutSeconds);
+            for (int i = 0; i < parameters.size(); i++) {
+                Object value = parameters.get(i);
+                if (value instanceof TypedValue) {
+                    TypedValue typed = (TypedValue) value;
+                    statement.bindBySqlType(i, typed.value, typed.sqlType);
+                } else statement.bind(i, value);
+            }
+            return statement.map(mapper).list();
+        });
+    }
+
     public List<Map<String, Object>> maps(JdbiQuery query) {
         Objects.requireNonNull(query, "query");
         return withHandle(handle -> {
