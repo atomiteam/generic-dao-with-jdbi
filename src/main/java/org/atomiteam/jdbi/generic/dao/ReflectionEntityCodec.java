@@ -51,6 +51,20 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
     }
 
     /**
+     * Selects raw values by mapped POJO property name, without converting or encoding them.
+     * Unknown document extensions are ignored; SQL expressions are never mapped properties.
+     */
+    public Map<String, Object> mappedProperties(Map<String, ?> source, boolean includeNulls) {
+        Objects.requireNonNull(source, "source");
+        Map<String, Object> values = new LinkedHashMap<>();
+        for (Field field : model.fields()) {
+            Object value = source.get(field.getName());
+            if (value != null || includeNulls) values.put(field.getName(), value);
+        }
+        return values;
+    }
+
+    /**
      * Maps validated Java properties, including typed JSON and ISO dates; unknown keys are
      * rejected.
      */
