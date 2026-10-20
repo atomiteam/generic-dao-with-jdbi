@@ -14,13 +14,5 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Prepare Java formatting
-        run: |
-          bash scripts/format-java.sh --write
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          for folder in ['src/main/java', 'src/test/java']:
-              for path in sorted(Path(folder).rglob('*.java')):
-                  print('DAO_FORMAT_SOURCE ' + json.dumps({'path': str(path), 'content': path.read_text()}))
-          PY
+      - name: Check Java formatting
+        run: bash scripts/format-java.sh --check
