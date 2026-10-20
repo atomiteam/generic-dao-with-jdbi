@@ -62,10 +62,15 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
                     String column = field.isAnnotationPresent(Column.class)
                             ? field.getAnnotation(Column.class).value()
                             : columnNaming.toColumnName(field.getName());
-                    if (!values.containsKey(column)) {
-                        continue;
+                    String label = column;
+                    if (!values.containsKey(label)) {
+                        java.util.List<String> matches = new java.util.ArrayList<>();
+                        for (String key : values.keySet()) if (key.equalsIgnoreCase(column)) matches.add(key);
+                        if (matches.isEmpty()) continue;
+                        if (matches.size() != 1) throw new IllegalArgumentException("Ambiguous column label: " + column);
+                        label = matches.get(0);
                     }
-                    Object value = values.get(column);
+                    Object value = values.get(label);
                     if (field.isAnnotationPresent(Json.class) && value != null) {
                         value = gson.fromJson(String.valueOf(value), field.getType());
                     }

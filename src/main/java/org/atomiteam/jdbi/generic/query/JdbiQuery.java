@@ -31,6 +31,7 @@ public final class JdbiQuery {
     private long parameterSequence;
     private Long limit;
     private Long offset;
+    private boolean seeking;
 
     private JdbiQuery(String baseSql) {
         if (baseSql == null || baseSql.trim().isEmpty()) {
@@ -125,6 +126,7 @@ public final class JdbiQuery {
 
     /** Developer-authored static ordering expression. Never pass raw client text here. */
     public JdbiQuery orderBy(String expression, Sorting sorting) {
+        if (seeking) throw new IllegalArgumentException("Cannot append to seek order");
         String safeExpression = requireExpression(expression);
         orderings.add(safeExpression + " " + Objects.requireNonNull(sorting, "sorting").name());
         return this;
@@ -156,15 +158,55 @@ public final class JdbiQuery {
     }
 
     public JdbiQuery limit(Long limit) { if (limit != null && limit < 0) throw new IllegalArgumentException("Limit cannot be negative"); this.limit = limit; return this; }
-    public JdbiQuery offset(Long offset) { if (offset != null && offset < 0) throw new IllegalArgumentException("Offset cannot be negative"); this.offset = offset; return this; }
+    public JdbiQuery offset(Long offset) { if (seeking && offset != null) throw new IllegalArgumentException("Cannot offset a seek query"); if (offset != null && offset < 0) throw new IllegalArgumentException("Offset cannot be negative"); this.offset = offset; return this; }
     public JdbiQuery page(Number offset, Number limit) { offset(offset == null ? null : offset.longValue()); limit(limit == null ? null : limit.longValue()); return this; }
+
+    /**
+     * Keyset order must end in a unique, stable tie-breaker. Expressions come from trusted
+     * application metadata, never request text. Null cursor means first page.
+     */
+    public JdbiQuery seekAfter(List<SeekColumn> columns, List<?> cursor) {
+        if (columns == null || columns.isEmpty() || columns.size() > 16)
+            throw new IllegalArgumentException("Use 1..16 seek columns");
+        if (!orderings.isEmpty() || offset != null) throw new IllegalArgumentException("Seek order cannot mix with offset/orderBy");
+        if (cursor != null && cursor.size() != columns.size()) throw new IllegalArgumentException("Cursor arity differs from order");
+        List<String> expressions = new ArrayList<>();
+        for(SeekColumn column:columns) expressions.add(requireExpression(column.getExpression()));
+        List<String> names = new ArrayList<>();
+        if (cursor != null) for(Object value:cursor) names.add(value == null ? null : addBinding(value));
+        List<String> alternatives = new ArrayList<>();
+        for(int i=0;i<columns.size();i++) {
+            SeekColumn column=columns.get(i);String expression=expressions.get(i);
+            orderings.add(expression+" "+column.getDirection()+" NULLS "+column.getNulls());
+            if(cursor == null) continue;
+            List<String> prefix = new ArrayList<>();
+            for(int j=0;j<i;j++) prefix.add(expressions.get(j)+(cursor.get(j)==null?" IS NULL":" = :"+names.get(j)));
+            String comparison;
+            if(cursor.get(i)==null) comparison=column.getNulls()==SeekColumn.Nulls.FIRST?expression+" IS NOT NULL":"1 = 0";
+            else {
+                comparison=expression+(column.getDirection()==Sorting.ASC?" > :":" < :")+names.get(i);
+                if(column.getNulls()==SeekColumn.Nulls.LAST) comparison="("+comparison+" OR "+expression+" IS NULL)";
+            }
+            prefix.add(comparison);alternatives.add("("+String.join(" AND ",prefix)+")");
+        }
+        if(cursor != null) predicates.add("("+String.join(" OR ",alternatives)+")");
+        seeking=true;
+        return this;
+    }
+
+    public JdbiQuery copy() {
+        JdbiQuery copy=new JdbiQuery(baseSql);
+        copy.predicates.addAll(predicates);copy.bindings.putAll(bindings);copy.orderings.addAll(orderings);
+        copy.parameterSequence=parameterSequence;copy.limit=limit;copy.offset=offset;copy.seeking=seeking;
+        return copy;
+    }
 
     public String sql() { return render(true, true); }
     public String countSql() { return "SELECT COUNT(*) FROM (" + render(false, false) + ") _atomi_count"; }
 
     public Map<String, Object> bindings() {
         Map<String, Object> result = new LinkedHashMap<>(bindings);
-        if (limit != null) result.put("_query_limit", limit);
+        if (limit != null || offset != null) result.put("_query_limit", limit == null ? Long.MAX_VALUE : limit);
         if (offset != null) result.put("_query_offset", offset);
         return Collections.unmodifiableMap(result);
     }
@@ -172,6 +214,7 @@ public final class JdbiQuery {
     public Map<String, Object> countBindings() { return Collections.unmodifiableMap(new LinkedHashMap<>(bindings)); }
     public Long getLimit() { return limit; }
     public Long getOffset() { return offset; }
+    boolean isSeeking() { return seeking; }
 
     private JdbiQuery compare(String expression, String operator, Object value) {
         if (value == null) {
@@ -196,14 +239,14 @@ public final class JdbiQuery {
         if (!predicates.isEmpty()) {
             String lower = baseSql.toLowerCase(Locale.ROOT);
             result.append(lower.matches("(?s).*\\bwhere\\b.*") ? " AND " : " WHERE ")
-                  .append(String.join(" AND ", predicates));
+                  .append(predicates.stream().map(predicate -> "(" + predicate + ")").collect(java.util.stream.Collectors.joining(" AND ")));
         }
         if (includeOrder && !orderings.isEmpty()) result.append(" ORDER BY ").append(String.join(", ", orderings));
         if (includePaging) {
             if (limit != null) {
                 result.append(" LIMIT :_query_limit");
                 if (offset != null) result.append(" OFFSET :_query_offset");
-            } else if (offset != null) result.append(" LIMIT 18446744073709551615 OFFSET :_query_offset");
+            } else if (offset != null) result.append(" LIMIT :_query_limit OFFSET :_query_offset");
         }
         return result.toString();
     }

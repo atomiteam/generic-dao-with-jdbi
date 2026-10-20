@@ -26,14 +26,29 @@ import org.jdbi.v3.core.statement.SqlStatement;
 public final class JdbiQueryExecutor {
 
     private final Jdbi jdbi;
+    private final org.jdbi.v3.core.Handle handle;
 
     public JdbiQueryExecutor(Jdbi jdbi) {
+        this(jdbi,null);
+    }
+
+    private JdbiQueryExecutor(Jdbi jdbi, org.jdbi.v3.core.Handle handle) {
         this.jdbi = Objects.requireNonNull(jdbi, "jdbi");
+        this.handle = handle;
+    }
+
+    /** Borrows a transaction Handle without managing its lifecycle. */
+    public JdbiQueryExecutor using(org.jdbi.v3.core.Handle handle) {
+        return new JdbiQueryExecutor(jdbi,Objects.requireNonNull(handle));
+    }
+
+    private <R> R withHandle(Function<org.jdbi.v3.core.Handle,R> operation) {
+        return handle == null ? jdbi.withHandle(h -> operation.apply(h)) : operation.apply(handle);
     }
 
     public List<Map<String, Object>> maps(JdbiQuery query) {
         Objects.requireNonNull(query, "query");
-        return jdbi.withHandle(handle -> {
+        return withHandle(handle -> {
             Query statement = handle.createQuery(query.sql());
             bind(statement, query.bindings());
             return statement.mapToMap().list();
@@ -42,7 +57,7 @@ public final class JdbiQueryExecutor {
 
     public Optional<Map<String, Object>> firstMap(JdbiQuery query) {
         Objects.requireNonNull(query, "query");
-        return jdbi.withHandle(handle -> {
+        return withHandle(handle -> {
             Query statement = handle.createQuery(query.sql());
             bind(statement, query.bindings());
             return statement.mapToMap().findFirst();
@@ -80,7 +95,7 @@ public final class JdbiQueryExecutor {
     public <T> List<T> scalars(JdbiQuery query, Class<T> type) {
         Objects.requireNonNull(query, "query");
         Objects.requireNonNull(type, "type");
-        return jdbi.withHandle(handle -> {
+        return withHandle(handle -> {
             Query statement = handle.createQuery(query.sql());
             bind(statement, query.bindings());
             return statement.mapTo(type).list();
@@ -90,7 +105,7 @@ public final class JdbiQueryExecutor {
     public <T> Optional<T> firstScalar(JdbiQuery query, Class<T> type) {
         Objects.requireNonNull(query, "query");
         Objects.requireNonNull(type, "type");
-        return jdbi.withHandle(handle -> {
+        return withHandle(handle -> {
             Query statement = handle.createQuery(query.sql());
             bind(statement, query.bindings());
             return statement.mapTo(type).findFirst();
@@ -99,7 +114,7 @@ public final class JdbiQueryExecutor {
 
     public long count(JdbiQuery query) {
         Objects.requireNonNull(query, "query");
-        return jdbi.withHandle(handle -> {
+        return withHandle(handle -> {
             Query statement = handle.createQuery(query.countSql());
             bind(statement, query.countBindings());
             return statement.map((rs, ctx) -> rs.getLong(1)).one();
@@ -115,6 +130,18 @@ public final class JdbiQueryExecutor {
     public QueryPage<Map<String, Object>> pageMaps(JdbiQuery query) {
         List<Map<String, Object>> items = new ArrayList<>(maps(query));
         return new QueryPage<>(items, count(query));
+    }
+
+    /** Fetches limit+1 rows, returns continuation values without an exact-count query. */
+    public <T> SeekPage<T> seekPage(JdbiQuery query, int pageSize,
+            Function<Map<String,Object>,T> mapper, Function<T,List<?>> position) {
+        Objects.requireNonNull(query);Objects.requireNonNull(mapper);Objects.requireNonNull(position);
+        if(pageSize < 1 || pageSize > 10000 || query.getOffset()!=null || !query.isSeeking())
+            throw new IllegalArgumentException("Use seekAfter with pageSize 1..10000 without offset");
+        List<T> fetched=list(query.copy().limit((long)pageSize+1),mapper);
+        boolean more=fetched.size()>pageSize;
+        List<T> items=more?fetched.subList(0,pageSize):fetched;
+        return new SeekPage<>(items,more,more?position.apply(items.get(items.size()-1)):null);
     }
 
     private static void bind(SqlStatement<?> statement, Map<String, ?> bindings) {
