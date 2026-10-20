@@ -56,6 +56,6 @@ class TypedProjectionTest {
         assertThrows(IllegalArgumentException.class,()->dao.scoped(Map.of("tenantId","a"))
                 .replaceByKey(Map.of("id","same","version",2L),codec.fromProperties(values)));
         assertThrows(IllegalArgumentException.class,()->codec.fromProperties(Map.of("unmapped","bad")));
-        assertThrows(IllegalArgumentException.class,()->codec.fromProperties(Map.of("dueDate","invalid")));
+        assertThrows(java.time.format.DateTimeParseException.class,()->codec.fromProperties(Map.of("dueDate","invalid")));
     }
 }
