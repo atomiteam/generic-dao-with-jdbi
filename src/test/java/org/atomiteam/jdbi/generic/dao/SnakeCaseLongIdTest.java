@@ -6,16 +6,16 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.jdbi.v3.core.Jdbi;
+import org.jdbi.v3.core.h2.H2DatabasePlugin;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
-
-import org.jdbi.v3.core.Jdbi;
-import org.jdbi.v3.core.h2.H2DatabasePlugin;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 
 class SnakeCaseLongIdTest {
 
@@ -26,14 +26,16 @@ class SnakeCaseLongIdTest {
     void setUp() {
         jdbi = Jdbi.create("jdbc:h2:mem:snake_long;DB_CLOSE_DELAY=-1;database_to_upper=false");
         jdbi.installPlugin(new H2DatabasePlugin());
-        jdbi.useHandle(handle -> {
-            handle.execute("DROP TABLE IF EXISTS snake_long_record");
-            handle.execute("CREATE TABLE snake_long_record (" +
-                    "id BIGINT PRIMARY KEY, " +
-                    "sample_column VARCHAR(255), " +
-                    "created_at BIGINT, " +
-                    "legacy_label VARCHAR(255))");
-        });
+        jdbi.useHandle(
+                handle -> {
+                    handle.execute("DROP TABLE IF EXISTS snake_long_record");
+                    handle.execute(
+                            "CREATE TABLE snake_long_record ("
+                                    + "id BIGINT PRIMARY KEY, "
+                                    + "sample_column VARCHAR(255), "
+                                    + "created_at BIGINT, "
+                                    + "legacy_label VARCHAR(255))");
+                });
         dao = new SnakeLongDao(jdbi);
     }
 
@@ -114,36 +116,52 @@ class SnakeCaseLongIdTest {
         dao.insert(record(4002L, "two", 10L, "2"));
         dao.insert(record(4003L, "three", 20L, "3"));
 
-        List<SnakeLongRecord> sorted = dao.filter(Filtering.create().withSorting("createdAt", Sorting.ASC));
-        assertEquals(List.of(4002L, 4003L, 4001L),
+        List<SnakeLongRecord> sorted =
+                dao.filter(Filtering.create().withSorting("createdAt", Sorting.ASC));
+        assertEquals(
+                List.of(4002L, 4003L, 4001L),
                 sorted.stream().map(SnakeLongRecord::getId).collect(Collectors.toList()));
     }
 
     @Test
     void rejectsUnknownFilterPropertyBeforeExecutingSql() {
-        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> dao.filter(Filtering.create().eq("doesNotExist", "x")));
+        IllegalArgumentException error =
+                assertThrows(
+                        IllegalArgumentException.class,
+                        () -> dao.filter(Filtering.create().eq("doesNotExist", "x")));
         assertTrue(error.getMessage().contains("Unknown or unmapped property"));
     }
 
     @Test
     void rejectsSqlInjectionInFilterPropertyBeforeExecutingSql() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> dao.filter(Filtering.create().eq("sampleColumn OR 1=1", "x")));
     }
 
     @Test
     void rejectsSqlInjectionInSortingPropertyBeforeExecutingSql() {
-        assertThrows(IllegalArgumentException.class,
-                () -> dao.filter(Filtering.create().withSorting("createdAt DESC; DROP TABLE snake_long_record", Sorting.ASC)));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        dao.filter(
+                                Filtering.create()
+                                        .withSorting(
+                                                "createdAt DESC; DROP TABLE snake_long_record",
+                                                Sorting.ASC)));
         assertEquals(0, dao.count(Filtering.create()));
     }
 
     @Test
     void rejectsInvalidTableIdentifierAtConstructionTime() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new GenericDao<>(jdbi, SnakeLongRecord.class,
-                        "snake_long_record; DROP TABLE snake_long_record", ColumnNaming.SNAKE_CASE));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        new GenericDao<>(
+                                jdbi,
+                                SnakeLongRecord.class,
+                                "snake_long_record; DROP TABLE snake_long_record",
+                                ColumnNaming.SNAKE_CASE));
     }
 
     @Test

@@ -16,8 +16,7 @@ public class Filtering {
     private Long limit;
     private LogicalOperator operator = LogicalOperator.AND;
 
-    private Filtering() {
-    }
+    private Filtering() {}
 
     public static Filtering create() {
         return new Filtering();
@@ -36,54 +35,94 @@ public class Filtering {
             if (text.startsWith(">")) return gt(name, text.substring(1));
             if (text.startsWith("<")) return lt(name, text.substring(1));
         }
-        filters.add(filter(name, Operator.Eq, value));
-        return this;
+        return add(name, Operator.Eq, value);
     }
 
     /** Literal equality; unlike the legacy eq helper, never interprets string prefixes. */
     public Filtering equalTo(String name, Object value) {
-        filters.add(filter(name, value == null ? Operator.IsNull : Operator.Eq, value));
-        return this;
+        return add(name, value == null ? Operator.IsNull : Operator.Eq, value);
     }
 
-    public Filtering notEq(String name, Object value) { filters.add(filter(name, Operator.NotEq, value)); return this; }
-    public Filtering like(String name, Object value) { filters.add(filter(name, Operator.Like, value)); return this; }
-    public Filtering notLike(String name, Object value) { filters.add(filter(name, Operator.NotLike, value)); return this; }
-    public Filtering in(String name, Collection<?> values) { filters.add(filter(name, Operator.In, values)); return this; }
-    public Filtering notIn(String name, Collection<?> values) { filters.add(filter(name, Operator.NotIn, values)); return this; }
-    public Filtering lt(String name, Object value) { filters.add(filter(name, Operator.Lt, value)); return this; }
-    public Filtering lte(String name, Object value) { filters.add(filter(name, Operator.Lte, value)); return this; }
-    public Filtering gt(String name, Object value) { filters.add(filter(name, Operator.Gt, value)); return this; }
-    public Filtering gte(String name, Object value) { filters.add(filter(name, Operator.Gte, value)); return this; }
-    public Filtering isNull(String name) { filters.add(filter(name, Operator.IsNull, null)); return this; }
-    public Filtering isNotNull(String name) { filters.add(filter(name, Operator.IsNotNull, null)); return this; }
+    public Filtering notEq(String name, Object value) {
+        return add(name, Operator.NotEq, value);
+    }
+
+    public Filtering like(String name, Object value) {
+        return add(name, Operator.Like, value);
+    }
+
+    public Filtering notLike(String name, Object value) {
+        return add(name, Operator.NotLike, value);
+    }
+
+    public Filtering in(String name, Collection<?> values) {
+        return add(name, Operator.In, values);
+    }
+
+    public Filtering notIn(String name, Collection<?> values) {
+        return add(name, Operator.NotIn, values);
+    }
+
+    public Filtering lt(String name, Object value) {
+        return add(name, Operator.Lt, value);
+    }
+
+    public Filtering lte(String name, Object value) {
+        return add(name, Operator.Lte, value);
+    }
+
+    public Filtering gt(String name, Object value) {
+        return add(name, Operator.Gt, value);
+    }
+
+    public Filtering gte(String name, Object value) {
+        return add(name, Operator.Gte, value);
+    }
+
+    public Filtering isNull(String name) {
+        return add(name, Operator.IsNull, null);
+    }
+
+    public Filtering isNotNull(String name) {
+        return add(name, Operator.IsNotNull, null);
+    }
 
     public List<Filter> filterings() {
         return filters.stream()
                 .filter(f -> Objects.nonNull(f.getName()) && !f.getName().isBlank())
-                .filter(f -> f.getOperator() == Operator.IsNull || f.getOperator() == Operator.IsNotNull
-                        || Objects.nonNull(f.getValue()))
+                .filter(
+                        f ->
+                                f.getOperator() == Operator.IsNull
+                                        || f.getOperator() == Operator.IsNotNull
+                                        || Objects.nonNull(f.getValue()))
                 .collect(Collectors.toList());
     }
 
-    public Long getOffset() { return offset; }
+    public Long getOffset() {
+        return offset;
+    }
 
     public Filtering withOffset(Long offset) {
-        if (offset != null && offset < 0) throw new IllegalArgumentException("Offset cannot be negative");
+        if (offset != null && offset < 0)
+            throw new IllegalArgumentException("Offset cannot be negative");
         this.offset = offset;
         return this;
     }
 
-    public Long getLimit() { return limit; }
+    public Long getLimit() {
+        return limit;
+    }
 
     public Filtering withLimit(Long limit) {
-        if (limit != null && limit < 0) throw new IllegalArgumentException("Limit cannot be negative");
+        if (limit != null && limit < 0)
+            throw new IllegalArgumentException("Limit cannot be negative");
         this.limit = limit;
         return this;
     }
 
     public Filtering withSorting(String name, Sorting sorting) {
-        if (name == null || name.isBlank()) throw new IllegalArgumentException("Name cannot be null or blank");
+        if (name == null || name.isBlank())
+            throw new IllegalArgumentException("Name cannot be null or blank");
         if (sorting == null) throw new IllegalArgumentException("Sorting cannot be null");
         sortings.add(new SortClause(name, sorting));
         return this;
@@ -100,15 +139,18 @@ public class Filtering {
         return first.getName() + " " + first.getSorting().name();
     }
 
-    public LogicalOperator getOperator() { return operator; }
+    public LogicalOperator getOperator() {
+        return operator;
+    }
 
     public Filtering withOperator(LogicalOperator operator) {
         this.operator = Objects.requireNonNull(operator, "operator");
         return this;
     }
 
-    private Filter filter(String name, Operator operator, Object value) {
-        return Filter.create().withName(name).withOperator(operator).withValue(value);
+    private Filtering add(String name, Operator operator, Object value) {
+        filters.add(Filter.create().withName(name).withOperator(operator).withValue(value));
+        return this;
     }
 
     public static final class SortClause {
@@ -120,7 +162,12 @@ public class Filtering {
             this.sorting = sorting;
         }
 
-        public String getName() { return name; }
-        public Sorting getSorting() { return sorting; }
+        public String getName() {
+            return name;
+        }
+
+        public Sorting getSorting() {
+            return sorting;
+        }
     }
 }

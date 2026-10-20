@@ -5,9 +5,9 @@ import java.util.Map;
 /**
  * Pluggable entity-to-storage mapping used by {@link GenericDao}.
  *
- * <p>The default implementation is reflection based. Applications with legacy
- * annotations, computed fields, foreign references, or other mapping rules can
- * provide their own codec without reimplementing CRUD SQL.</p>
+ * <p>The default implementation is reflection based. Applications with legacy annotations, computed
+ * fields, foreign references, or other mapping rules can provide their own codec without
+ * reimplementing CRUD SQL.
  */
 public interface EntityCodec<T> {
 

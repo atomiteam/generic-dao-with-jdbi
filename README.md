@@ -268,3 +268,38 @@ Use `DsqlSupport.dao(...)` for `@Json` fields: JSON is encoded once and bound us
 JDBC `Types.OTHER` so PostgreSQL/DSQL JSON/JSONB columns do not receive VARCHAR values.
 The default `GenericDao` codec remains portable and unchanged for existing users.
 JDBC timestamps/dates and UUID strings map to matching Java temporal/UUID fields.
+
+### Typed projections and existing quoted columns
+
+Use `DsqlSupport.dao(db, Row.class, table, ColumnNaming.QUOTED_IDENTITY)`
+for existing quoted camelCase schemas; no custom column codec is required.
+The default unquoted naming remains unchanged. Row labels are resolved without SQL
+quotes, case-insensitively, and ambiguous labels are rejected.
+
+`PostgresEntityCodec.fromProperties(values)` maps validated Java property values
+to an ordinary POJO, including ISO date/time strings and generic `@Json` fields.
+Unknown properties are rejected. Use `@Json JsonElement` when JSON numeric tokens
+must survive a read/write without conversion to floating point.
+
+`dao.replaceByKey(keys, entity)` replaces all mapped non-id properties including
+nulls, with mandatory scope and optimistic keys. Leave database-managed columns
+out of the POJO; unlike a patch, omitted POJO values are explicitly cleared.
+JSON encoding occurs once. A borrowed handle stays owned by its caller.
+
+`SqlStatements` executes trusted specialized SQL on borrowed JDBC connections,
+without completing or closing their transactions. Its DataSource list method owns
+only its acquired read connection. Entity CRUD belongs in GenericDao.
+
+Applications with idempotent replay can explicitly supply additional retry states
+and an error factory to `DsqlTransactions.run`. The default remains 40001 only.
+Commit failures rely on JDBI's rollback rather than issuing a duplicate rollback.
+
+### Design, operation coverage and quality gates
+
+See [design and test coverage](docs/DESIGN_AND_TEST_COVERAGE.md) for the public-operation
+matrix, internal responsibilities and native integration limits. Run `mvn verify`
+for unit tests and the JaCoCo gate (90% line / 80% branch coverage).
+CI publishes HTML/XML coverage and test results. Java 11 remains the library target;
+formatting uses Java 17+ with `bash scripts/format-java.sh --check` or `--write`.
+PostgreSQL and MySQL contracts run separately; DSQL driver-level tests are not a live
+AWS/IAM validation.

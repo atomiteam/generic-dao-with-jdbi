@@ -13,8 +13,10 @@ class PropertyUtilsTest {
 
     @Test
     void convertsJdbcNumbersToRequestedJavaNumericTypes() {
-        assertEquals(Long.valueOf(12L), PropertyUtils.convertValue(Integer.valueOf(12), Long.class));
-        assertEquals(Integer.valueOf(12), PropertyUtils.convertValue(Long.valueOf(12L), Integer.class));
+        assertEquals(
+                Long.valueOf(12L), PropertyUtils.convertValue(Integer.valueOf(12), Long.class));
+        assertEquals(
+                Integer.valueOf(12), PropertyUtils.convertValue(Long.valueOf(12L), Integer.class));
     }
 
     @Test

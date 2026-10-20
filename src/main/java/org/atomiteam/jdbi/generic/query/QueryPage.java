@@ -9,10 +9,18 @@ public final class QueryPage<T> {
     private final long total;
 
     public QueryPage(List<T> items, long total) {
-        this.items = items == null ? Collections.emptyList() : Collections.unmodifiableList(items);
+        this.items =
+                items == null
+                        ? Collections.emptyList()
+                        : Collections.unmodifiableList(new java.util.ArrayList<>(items));
         this.total = total;
     }
 
-    public List<T> getItems() { return items; }
-    public long getTotal() { return total; }
+    public List<T> getItems() {
+        return items;
+    }
+
+    public long getTotal() {
+        return total;
+    }
 }

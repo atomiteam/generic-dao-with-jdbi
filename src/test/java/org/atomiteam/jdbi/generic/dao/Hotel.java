@@ -5,11 +5,9 @@ public class Hotel extends Entity {
     public static final String TEST_STATIC = "static value";
 
     private String name;
-    @Json
-    private Address address;
+    @Json private Address address;
 
-    @Transient
-    private Address transientProperty;
+    @Transient private Address transientProperty;
 
     public String getName() {
         return name;
@@ -34,5 +32,4 @@ public class Hotel extends Entity {
     public void setTransientProperty(Address transientProperty) {
         this.transientProperty = transientProperty;
     }
-
 }
