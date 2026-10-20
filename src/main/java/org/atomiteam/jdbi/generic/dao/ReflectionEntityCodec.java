@@ -37,7 +37,7 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
                     Object value = field.get(entity);
                     if (value != null || includeNulls) {
                         values.put(field.getName(), field.isAnnotationPresent(Json.class) && value != null
-                                ? gson.toJson(value)
+                                ? json(value)
                                 : value);
                     }
                 }
@@ -100,7 +100,7 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
                 Field field = requireField(entry.getKey());
                 Object value = entry.getValue();
                 if (value != null && field.isAnnotationPresent(Json.class)) {
-                    value = gson.fromJson(gson.toJson(value), field.getGenericType());
+                    value = gson.fromJson(new com.google.gson.GsonBuilder().serializeNulls().create().toJson(value), field.getGenericType());
                 }
                 PropertyUtils.setPropertyValue(instance, type, field, value);
             }
@@ -143,7 +143,12 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
     @Override
     public Object toStorageValue(String propertyName, Object value) {
         Field field = requireField(propertyName);
-        return value != null && field.isAnnotationPresent(Json.class) ? gson.toJson(value) : value;
+        return value != null && field.isAnnotationPresent(Json.class) ? json(value) : value;
+    }
+
+    private String json(Object value) {
+        // JsonElement is an explicitly lossless JSON tree, including null members.
+        return value instanceof com.google.gson.JsonElement ? value.toString() : gson.toJson(value);
     }
 
     private Field requireField(String name) {

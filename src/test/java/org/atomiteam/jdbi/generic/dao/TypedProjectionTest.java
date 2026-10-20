@@ -29,7 +29,10 @@ class TypedProjectionTest {
         values.put("id", "same"); values.put("version", 1L);
         values.put("displayName", "Before"); values.put("optional", "clear");
         values.put("dueDate", "2026-10-20"); values.put("updatedAt", "2026-10-20T12:00:00Z");
-        values.put("payload", Map.of("integer", 9007199254740993L));
+        Map<String,Object> payload = new LinkedHashMap<>();
+        payload.put("integer", 9007199254740993L);
+        payload.put("explicitNull", null);
+        values.put("payload", payload);
         values.put("tags", List.of("a", "b"));
         dao.scoped(Map.of("tenantId","a")).insert(codec.fromProperties(values));
         dao.scoped(Map.of("tenantId","b")).insert(codec.fromProperties(values));
@@ -38,6 +41,8 @@ class TypedProjectionTest {
         assertEquals(LocalDate.parse("2026-10-20"),stored.dueDate);
         assertEquals(9007199254740993L,stored.payload.getAsJsonObject().get("integer").getAsLong());
         assertEquals(List.of("a","b"),stored.tags);
+        assertTrue(stored.payload.getAsJsonObject().has("explicitNull"));
+        assertTrue(stored.payload.getAsJsonObject().get("explicitNull").isJsonNull());
         values.put("tenantId","a"); values.put("version",2L);
         values.put("displayName","After"); values.put("optional",null);
         Row replacement=codec.fromProperties(values);
