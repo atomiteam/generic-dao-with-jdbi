@@ -1,181 +1,96 @@
 package org.atomiteam.jdbi.generic.dao;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.util.LinkedHashMap;
-import java.util.Map;
-
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import java.lang.reflect.Field;
+import java.util.*;
 
-/** Default {@link EntityCodec} preserving GenericDao's reflection mapping. */
+/** Portable POJO mapping; SQL generation and database-specific binding are separate concerns. */
 public class ReflectionEntityCodec<T> implements EntityCodec<T> {
+    private static final Gson JSON = new Gson();
+    private static final Gson PROPERTY_JSON = new GsonBuilder().serializeNulls().create();
+    private final EntityModel<T> model;
+    private final ColumnNaming naming;
 
-    private final Class<T> type;
-    private final ColumnNaming columnNaming;
-    private final Gson gson = new Gson();
+    public ReflectionEntityCodec(Class<T> type) { this(type, ColumnNaming.IDENTITY); }
 
-    public ReflectionEntityCodec(Class<T> type) {
-        this(type, ColumnNaming.IDENTITY);
+    public ReflectionEntityCodec(Class<T> type, ColumnNaming naming) {
+        this.model = EntityModel.of(type);
+        this.naming = Objects.requireNonNull(naming, "naming");
     }
 
-    public ReflectionEntityCodec(Class<T> type, ColumnNaming columnNaming) {
-        this.type = type;
-        this.columnNaming = columnNaming;
-    }
-
-    @Override
-    public Map<String, Object> toStorage(T entity, boolean includeNulls) {
-        Map<String, Object> values = new LinkedHashMap<>();
-        Class<?> current = entity.getClass();
-        try {
-            while (current != null) {
-                for (Field field : current.getDeclaredFields()) {
-                    if (!isPersistent(field)) {
-                        continue;
-                    }
-                    field.setAccessible(true);
-                    Object value = field.get(entity);
-                    if (value != null || includeNulls) {
-                        values.put(field.getName(), field.isAnnotationPresent(Json.class) && value != null
-                                ? json(value)
-                                : value);
-                    }
-                }
-                current = current.getSuperclass();
-            }
-            return values;
-        } catch (IllegalAccessException e) {
-            throw new IllegalStateException("Failed to inspect entity " + entity.getClass().getName(), e);
+    @Override public Map<String,Object> toStorage(T entity, boolean includeNulls) {
+        Objects.requireNonNull(entity, "entity");
+        Map<String,Object> values = new LinkedHashMap<>();
+        for (Field field : model.fields()) {
+            Object value = model.read(entity, field);
+            if (value != null || includeNulls)
+                values.put(field.getName(), toStorageValue(field.getName(), value));
         }
+        return values;
     }
 
-    @Override
-    public T fromStorage(Map<String, Object> values) {
-        try {
-            T instance = type.getDeclaredConstructor().newInstance();
-            Class<?> current = type;
-            while (current != null) {
-                for (Field field : current.getDeclaredFields()) {
-                    if (!isPersistent(field)) {
-                        continue;
-                    }
-                    String column = field.isAnnotationPresent(Column.class)
-                            ? field.getAnnotation(Column.class).value()
-                            : columnNaming.toColumnName(field.getName());
-                    // JDBC labels never include the SQL identifier's surrounding quotes.
-                    if (column.startsWith("\"") && column.endsWith("\"")) {
-                        column = column.substring(1, column.length() - 1);
-                    }
-                    String label = column;
-                    if (!values.containsKey(label)) {
-                        java.util.List<String> matches = new java.util.ArrayList<>();
-                        for (String key : values.keySet()) if (key.equalsIgnoreCase(column)) matches.add(key);
-                        if (matches.isEmpty()) continue;
-                        if (matches.size() != 1) throw new IllegalArgumentException("Ambiguous column label: " + column);
-                        label = matches.get(0);
-                    }
-                    Object value = values.get(label);
-                    if (field.isAnnotationPresent(Json.class) && value != null) {
-                        value = gson.fromJson(String.valueOf(value), field.getGenericType());
-                    }
-                    PropertyUtils.setPropertyValue(instance, type, field, value);
-                }
-                current = current.getSuperclass();
-            }
-            return instance;
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("Failed to map storage values to " + type.getName(), e);
+    @Override public T fromStorage(Map<String,Object> values) {
+        Objects.requireNonNull(values, "values");
+        T entity = model.create();
+        for (Field field : model.fields()) {
+            String label = label(values, columnName(field.getName(), naming));
+            if (label == null) continue;
+            Object value = values.get(label);
+            if (value != null && field.isAnnotationPresent(Json.class))
+                value = JSON.fromJson(String.valueOf(value), field.getGenericType());
+            model.write(entity, field, value);
         }
+        return entity;
     }
 
-    /**
-     * Maps Java property values to a POJO, before SQL encoding. Unknown properties
-     * are rejected; explicit nulls remain null. JSON values are converted using
-     * the field's generic type, including JsonElement for lossless numeric tokens.
-     */
-    public T fromProperties(Map<String, ?> values) {
-        try {
-            T instance = type.getDeclaredConstructor().newInstance();
-            for (Map.Entry<String, ?> entry : values.entrySet()) {
-                Field field = requireField(entry.getKey());
-                Object value = entry.getValue();
-                if (value != null && field.isAnnotationPresent(Json.class)) {
-                    value = gson.fromJson(new com.google.gson.GsonBuilder().serializeNulls().create().toJson(value), field.getGenericType());
-                }
-                PropertyUtils.setPropertyValue(instance, type, field, value);
-            }
-            return instance;
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException("Failed to map properties to " + type.getName(), e);
-        }
+    /** Maps validated Java properties, including typed JSON and ISO dates; unknown keys are rejected. */
+    public T fromProperties(Map<String,?> values) {
+        Objects.requireNonNull(values, "values");
+        T entity = model.create();
+        values.forEach((name, requested) -> {
+            Field field = model.require(name);
+            Object value = requested;
+            if (value != null && field.isAnnotationPresent(Json.class))
+                value = PROPERTY_JSON.fromJson(PROPERTY_JSON.toJson(value), field.getGenericType());
+            model.write(entity, field, value);
+        });
+        return entity;
     }
 
-    @Override
-    public boolean isMappedProperty(String propertyName) {
-        Field field = findField(type, propertyName);
-        return field != null && isPersistent(field);
-    }
+    @Override public boolean isMappedProperty(String name) { return model.contains(name); }
 
-    @Override
-    public String columnName(String propertyName, ColumnNaming requestedNaming) {
-        Field field = requireField(propertyName);
+    @Override public String columnName(String name, ColumnNaming requestedNaming) {
+        Field field = model.require(name);
         return field.isAnnotationPresent(Column.class)
-                ? field.getAnnotation(Column.class).value()
-                : requestedNaming.toColumnName(propertyName);
+                ? field.getAnnotation(Column.class).value() : requestedNaming.toColumnName(name);
     }
 
-    @Override
-    public Object getId(T entity) {
-        Field field = requireField("id");
-        try {
-            field.setAccessible(true);
-            return field.get(entity);
-        } catch (IllegalAccessException e) {
-            throw new IllegalStateException("Failed to read id from " + type.getName(), e);
+    @Override public Object getId(T entity) { return model.read(entity, model.require("id")); }
+    @Override public void setId(T entity, Object id) { model.write(entity, model.require("id"), id); }
+
+    @Override public Object toStorageValue(String name, Object value) {
+        boolean json = isJsonProperty(name);
+        if (value == null || !json) return value;
+        return value instanceof JsonElement ? value.toString() : JSON.toJson(value);
+    }
+
+    /** Extension point for native JSON binding, without repeating reflection or serialization. */
+    protected final boolean isJsonProperty(String name) {
+        return model.require(name).isAnnotationPresent(Json.class);
+    }
+
+    private static String label(Map<String,?> values, String column) {
+        String unquoted = column.startsWith("\"") && column.endsWith("\"")
+                ? column.substring(1, column.length() - 1) : column;
+        if (values.containsKey(unquoted)) return unquoted;
+        String match = null;
+        for (String key : values.keySet()) {
+            if (!key.equalsIgnoreCase(unquoted)) continue;
+            if (match != null) throw new IllegalArgumentException("Ambiguous column label: " + unquoted);
+            match = key;
         }
-    }
-
-    @Override
-    public void setId(T entity, Object id) {
-        PropertyUtils.setPropertyValue(entity, type, requireField("id"), id);
-    }
-
-    @Override
-    public Object toStorageValue(String propertyName, Object value) {
-        Field field = requireField(propertyName);
-        return value != null && field.isAnnotationPresent(Json.class) ? json(value) : value;
-    }
-
-    private String json(Object value) {
-        // JsonElement is an explicitly lossless JSON tree, including null members.
-        return value instanceof com.google.gson.JsonElement ? value.toString() : gson.toJson(value);
-    }
-
-    private Field requireField(String name) {
-        Field field = findField(type, name);
-        if (field == null || !isPersistent(field)) {
-            throw new IllegalArgumentException("Unknown or unmapped property '" + name + "' for entity " + type.getName());
-        }
-        return field;
-    }
-
-    private static boolean isPersistent(Field field) {
-        int modifiers = field.getModifiers();
-        return !Modifier.isStatic(modifiers)
-                && !Modifier.isTransient(modifiers)
-                && !field.isSynthetic()
-                && !field.isAnnotationPresent(Transient.class);
-    }
-
-    private static Field findField(Class<?> type, String name) {
-        Class<?> current = type;
-        while (current != null) {
-            try {
-                return current.getDeclaredField(name);
-            } catch (NoSuchFieldException ignored) {
-                current = current.getSuperclass();
-            }
-        }
-        return null;
+        return match;
     }
 }

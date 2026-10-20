@@ -1,7 +1,6 @@
 package org.atomiteam.jdbi.generic.query;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -14,7 +13,6 @@ import org.atomiteam.jdbi.generic.dao.EntityCodec;
 import org.atomiteam.jdbi.generic.dao.ReflectionEntityCodec;
 import org.jdbi.v3.core.Jdbi;
 import org.jdbi.v3.core.statement.Query;
-import org.jdbi.v3.core.statement.SqlStatement;
 
 /**
  * Central execution/mapping layer for {@link JdbiQuery}.
@@ -77,20 +75,12 @@ public final class JdbiQueryExecutor {
 
     public List<Map<String, Object>> maps(JdbiQuery query) {
         Objects.requireNonNull(query, "query");
-        return withHandle(handle -> {
-            Query statement = handle.createQuery(query.sql());
-            bind(statement, query.bindings());
-            return statement.mapToMap().list();
-        });
+        return execute(query.sql(), query.bindings(), statement -> statement.mapToMap().list());
     }
 
     public Optional<Map<String, Object>> firstMap(JdbiQuery query) {
         Objects.requireNonNull(query, "query");
-        return withHandle(handle -> {
-            Query statement = handle.createQuery(query.sql());
-            bind(statement, query.bindings());
-            return statement.mapToMap().findFirst();
-        });
+        return execute(query.sql(), query.bindings(), statement -> statement.mapToMap().findFirst());
     }
 
     public <T> List<T> list(JdbiQuery query, Function<Map<String, Object>, T> mapper) {
@@ -124,30 +114,19 @@ public final class JdbiQueryExecutor {
     public <T> List<T> scalars(JdbiQuery query, Class<T> type) {
         Objects.requireNonNull(query, "query");
         Objects.requireNonNull(type, "type");
-        return withHandle(handle -> {
-            Query statement = handle.createQuery(query.sql());
-            bind(statement, query.bindings());
-            return statement.mapTo(type).list();
-        });
+        return execute(query.sql(), query.bindings(), statement -> statement.mapTo(type).list());
     }
 
     public <T> Optional<T> firstScalar(JdbiQuery query, Class<T> type) {
         Objects.requireNonNull(query, "query");
         Objects.requireNonNull(type, "type");
-        return withHandle(handle -> {
-            Query statement = handle.createQuery(query.sql());
-            bind(statement, query.bindings());
-            return statement.mapTo(type).findFirst();
-        });
+        return execute(query.sql(), query.bindings(), statement -> statement.mapTo(type).findFirst());
     }
 
     public long count(JdbiQuery query) {
         Objects.requireNonNull(query, "query");
-        return withHandle(handle -> {
-            Query statement = handle.createQuery(query.countSql());
-            bind(statement, query.countBindings());
-            return statement.map((rs, ctx) -> rs.getLong(1)).one();
-        });
+        return execute(query.countSql(), query.countBindings(),
+                statement -> statement.map((rs, ctx) -> rs.getLong(1)).one());
     }
 
     public <T> QueryPage<T> page(JdbiQuery query, Function<Map<String, Object>, T> mapper) {
@@ -173,18 +152,12 @@ public final class JdbiQueryExecutor {
         return new SeekPage<>(items,more,more?position.apply(items.get(items.size()-1)):null);
     }
 
-    private static void bind(SqlStatement<?> statement, Map<String, ?> bindings) {
-        if (bindings == null) return;
-        bindings.forEach((name, value) -> {
-            if (value instanceof Collection<?>) {
-                Collection<?> collection = (Collection<?>) value;
-                if (collection.isEmpty()) {
-                    throw new IllegalArgumentException("Cannot bind empty collection: " + name);
-                }
-                statement.bindList(name, collection);
-            } else {
-                statement.bind(name, value);
-            }
+
+    private <T> T execute(String sql, Map<String,?> bindings, Function<Query,T> result) {
+        return withHandle(handle -> {
+            Query statement = handle.createQuery(sql);
+            org.atomiteam.jdbi.generic.internal.StatementBindings.bind(statement, bindings);
+            return result.apply(statement);
         });
     }
 }

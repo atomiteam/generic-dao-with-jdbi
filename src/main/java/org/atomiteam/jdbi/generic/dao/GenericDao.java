@@ -1,7 +1,6 @@
 package org.atomiteam.jdbi.generic.dao;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -197,13 +196,12 @@ public class GenericDao<T> {
         } else if (conditions.getOffset() != null) {
             suffix.append(" LIMIT ").append(Long.MAX_VALUE).append(" OFFSET ").append(conditions.getOffset());
         }
-        String sql =
-                String.format(
-                        "SELECT * FROM %s %s%s", table, buildWhereClause(conditions), suffix);
+        DaoPredicates predicates = predicates(conditions);
+        String sql = String.format("SELECT * FROM %s %s%s", table, predicates.sql(), suffix);
         return withHandle(
                 handle -> {
                     Query query = handle.createQuery(sql);
-                    bindQueryParameters(query, conditions);
+                    predicates.bind(query);
                     return query.mapToMap().list().stream()
                             .map(codec::fromStorage)
                             .collect(Collectors.toList());
@@ -212,12 +210,12 @@ public class GenericDao<T> {
 
     public Integer count(Filtering conditions) {
         Objects.requireNonNull(conditions, "conditions");
-        String sql =
-                String.format("SELECT count(*) FROM %s %s", table, buildWhereClause(conditions));
+        DaoPredicates predicates = predicates(conditions);
+        String sql = String.format("SELECT count(*) FROM %s %s", table, predicates.sql());
         return withHandle(
                 handle -> {
                     Query query = handle.createQuery(sql);
-                    bindQueryParameters(query, conditions);
+                    predicates.bind(query);
                     return query.mapTo(Integer.class).one();
                 });
     }
@@ -238,12 +236,12 @@ public class GenericDao<T> {
         if (conditions.filterings().isEmpty()) {
             throw new IllegalArgumentException("Refusing unfiltered delete from " + table);
         }
-        String sql =
-                String.format("DELETE FROM %s %s", table, buildWhereClause(conditions));
+        DaoPredicates predicates = predicates(conditions);
+        String sql = String.format("DELETE FROM %s %s", table, predicates.sql());
         return withHandle(
                 handle -> {
                     org.jdbi.v3.core.statement.Update update = handle.createUpdate(sql);
-                    bindStatementParameters(update, conditions);
+                    predicates.bind(update);
                     return update.execute();
                 });
     }
@@ -296,10 +294,11 @@ public class GenericDao<T> {
         List<String> properties = new ArrayList<>(changes.keySet());
         List<String> assignments = new ArrayList<>();
         for(int i=0;i<properties.size();i++) assignments.add(columnName(properties.get(i))+" = :_u"+i);
-        String sql = "UPDATE "+table+" SET "+String.join(", ",assignments)+" "+buildWhereClause(keys);
+        DaoPredicates predicates = predicates(keys);
+        String sql = "UPDATE "+table+" SET "+String.join(", ",assignments)+" "+predicates.sql();
         return withHandle(h -> {
             org.jdbi.v3.core.statement.Update update = h.createUpdate(sql);
-            bindStatementParameters(update,keys);
+            predicates.bind(update);
             for(int i=0;i<properties.size();i++) update.bind("_u"+i,changes.get(properties.get(i)));
             return update.execute();
         });
@@ -331,107 +330,8 @@ public class GenericDao<T> {
         return output;
     }
 
-    private String buildWhereClause(Filtering conditions) {
-        List<Filter> filters = conditions.filterings();
-
-
-        List<String> clauses = new ArrayList<>();
-        for (int i = 0; i < filters.size(); i++) {
-            Filter filter = filters.get(i);
-            String property = requireMappedProperty(filter.getName());
-            String column = columnName(property);
-            String parameter = filterParameter(i);
-            switch (filter.getOperator()) {
-                case In:
-                    clauses.add(column + " IN (<" + parameter + ">)");
-                    break;
-                case NotIn:
-                    clauses.add(column + " NOT IN (<" + parameter + ">)");
-                    break;
-                case Like:
-                    clauses.add(column + " LIKE :" + parameter);
-                    break;
-                case NotLike:
-                    clauses.add(column + " NOT LIKE :" + parameter);
-                    break;
-                case Eq:
-                    clauses.add(column + " = :" + parameter);
-                    break;
-                case NotEq:
-                    clauses.add(column + " != :" + parameter);
-                    break;
-                case Lt:
-                    clauses.add(column + " < :" + parameter);
-                    break;
-                case Lte:
-                    clauses.add(column + " <= :" + parameter);
-                    break;
-                case Gt:
-                    clauses.add(column + " > :" + parameter);
-                    break;
-                case Gte:
-                    clauses.add(column + " >= :" + parameter);
-                    break;
-                case IsNull:
-                    clauses.add(column + " IS NULL");
-                    break;
-                case IsNotNull:
-                    clauses.add(column + " IS NOT NULL");
-                    break;
-                default:
-                    throw new IllegalArgumentException("Unsupported operator: " + filter.getOperator());
-            }
-        }
-        List<String> scoped = new ArrayList<>();
-        int index = 0;
-        for(String key:scope.keySet()) scoped.add(columnName(key)+" = :_scope"+index++);
-        if (!clauses.isEmpty()) scoped.add("("+String.join(" " + conditions.getOperator().name() + " ", clauses)+")");
-        return scoped.isEmpty() ? "" : "WHERE "+String.join(" AND ",scoped);
-    }
-
-    private void bindQueryParameters(Query query, Filtering conditions) {
-        bindParameters(
-                (name, value) -> {
-                    if (value instanceof Collection<?>) {
-                        query.bindList(name, (Collection<?>) value);
-                    } else {
-                        query.bind(name, value);
-                    }
-                },
-                conditions);
-    }
-
-    private void bindStatementParameters(
-            org.jdbi.v3.core.statement.SqlStatement<?> statement, Filtering conditions) {
-        bindParameters(
-                (name, value) -> {
-                    if (value instanceof Collection<?>) {
-                        statement.bindList(name, (Collection<?>) value);
-                    } else {
-                        statement.bind(name, value);
-                    }
-                },
-                conditions);
-    }
-
-    private void bindParameters(
-            java.util.function.BiConsumer<String, Object> binder, Filtering conditions) {
-        int scopedIndex = 0;
-        for(Object value:scope.values()) binder.accept("_scope"+scopedIndex++,value);
-        List<Filter> filters = conditions.filterings();
-        for (int i = 0; i < filters.size(); i++) {
-            Filter filter = filters.get(i);
-            if (filter.getOperator() == Operator.IsNull
-                    || filter.getOperator() == Operator.IsNotNull) {
-                continue;
-            }
-            String property = requireMappedProperty(filter.getName());
-            binder.accept(filterParameter(i), codec.toStorageValue(property, filter.getValue()));
-        }
-    }
-
-    private String filterParameter(int index) {
-        return "_f" + index;
+    private DaoPredicates predicates(Filtering conditions) {
+        return DaoPredicates.compile(conditions, scope, this::columnName, codec::toStorageValue);
     }
 
     private String mapSorting(Filtering.SortClause clause) {

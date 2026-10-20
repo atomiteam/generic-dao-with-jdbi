@@ -25,15 +25,12 @@ public class PropertyUtils {
     }
 
     private static Method findSetter(Class<?> type, String setterName, Class<?> parameterType) {
-        Class<?> current = type;
-        while (current != null) {
-            try {
-                return current.getMethod(setterName, parameterType);
-            } catch (NoSuchMethodException ignored) {
-                current = current.getSuperclass();
-            }
+        try {
+            // getMethod already searches public inherited methods.
+            return type.getMethod(setterName, parameterType);
+        } catch (NoSuchMethodException ignored) {
+            return null;
         }
-        return null;
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })

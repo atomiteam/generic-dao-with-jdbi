@@ -46,7 +46,7 @@ public final class JdbiQuery {
     public JdbiQuery bind(String name, Object value) {
         requireBindName(name);
         if (bindings.containsKey(name)) throw new IllegalArgumentException("Duplicate binding: " + name);
-        bindings.put(name, value);
+        bindings.put(name, immutableValue(value));
         return this;
     }
 
@@ -71,8 +71,9 @@ public final class JdbiQuery {
     public JdbiQuery gteIfPresent(String expression, Object value) { return value == null ? this : gte(expression, value); }
 
     public JdbiQuery like(String expression, String value) {
+        String safe = requireExpression(expression);
         String parameter = addBinding(value);
-        predicates.add(requireExpression(expression) + " LIKE :" + parameter);
+        predicates.add(safe + " LIKE :" + parameter);
         return this;
     }
 
@@ -80,8 +81,9 @@ public final class JdbiQuery {
 
     public JdbiQuery in(String expression, Collection<?> values) {
         if (values == null || values.isEmpty()) throw new IllegalArgumentException("IN values cannot be null or empty");
+        String safe = requireExpression(expression);
         String parameter = addBinding(new ArrayList<>(values));
-        predicates.add(requireExpression(expression) + " IN (<" + parameter + ">)");
+        predicates.add(safe + " IN (<" + parameter + ">)");
         return this;
     }
 
@@ -89,8 +91,9 @@ public final class JdbiQuery {
 
     public JdbiQuery notIn(String expression, Collection<?> values) {
         if (values == null || values.isEmpty()) throw new IllegalArgumentException("NOT IN values cannot be null or empty");
+        String safe = requireExpression(expression);
         String parameter = addBinding(new ArrayList<>(values));
-        predicates.add(requireExpression(expression) + " NOT IN (<" + parameter + ">)");
+        predicates.add(safe + " NOT IN (<" + parameter + ">)");
         return this;
     }
 
@@ -104,21 +107,8 @@ public final class JdbiQuery {
         if (predicate == null || predicate.trim().isEmpty()) throw new IllegalArgumentException("Predicate cannot be blank");
         rejectStatementBreakout(predicate);
         Object[] supplied = values == null ? new Object[0] : values;
-        StringBuilder rendered = new StringBuilder();
-        int valueIndex = 0;
-        boolean singleQuoted = false;
-        boolean doubleQuoted = false;
-        for (int i = 0; i < predicate.length(); i++) {
-            char c = predicate.charAt(i);
-            if (c == '\'' && !doubleQuoted) singleQuoted = !singleQuoted;
-            if (c == '"' && !singleQuoted) doubleQuoted = !doubleQuoted;
-            if (c == '?' && !singleQuoted && !doubleQuoted) {
-                if (valueIndex >= supplied.length) throw new IllegalArgumentException("Not enough values for predicate placeholders: " + predicate);
-                rendered.append(':').append(addBinding(supplied[valueIndex++]));
-            } else rendered.append(c);
-        }
-        if (valueIndex != supplied.length) throw new IllegalArgumentException("Too many values for predicate placeholders: " + predicate);
-        predicates.add(rendered.toString());
+        String rendered = SqlFragments.predicate(predicate, supplied, this::addBinding);
+        predicates.add(rendered);
         return this;
     }
 
@@ -222,8 +212,9 @@ public final class JdbiQuery {
             if ("<>".equals(operator)) return isNotNull(expression);
             throw new IllegalArgumentException("Null is not valid for operator " + operator);
         }
+        String safe = requireExpression(expression);
         String parameter = addBinding(value);
-        predicates.add(requireExpression(expression) + " " + operator + " :" + parameter);
+        predicates.add(safe + " " + operator + " :" + parameter);
         return this;
     }
 
@@ -234,13 +225,16 @@ public final class JdbiQuery {
         return name;
     }
 
+    private static Object immutableValue(Object value) {
+        return value instanceof Collection<?>
+                ? Collections.unmodifiableList(new ArrayList<>((Collection<?>) value)) : value;
+    }
+
     private String render(boolean includeOrder, boolean includePaging) {
-        StringBuilder result = new StringBuilder(baseSql);
-        if (!predicates.isEmpty()) {
-            String lower = baseSql.toLowerCase(Locale.ROOT);
-            result.append(lower.matches("(?s).*\\bwhere\\b.*") ? " AND " : " WHERE ")
-                  .append(predicates.stream().map(predicate -> "(" + predicate + ")").collect(java.util.stream.Collectors.joining(" AND ")));
-        }
+        String selected = predicates.isEmpty() ? baseSql : SqlFragments.append(baseSql,
+                predicates.stream().map(predicate -> "(" + predicate + ")")
+                        .collect(java.util.stream.Collectors.joining(" AND ")));
+        StringBuilder result = new StringBuilder(selected);
         if (includeOrder && !orderings.isEmpty()) result.append(" ORDER BY ").append(String.join(", ", orderings));
         if (includePaging) {
             if (limit != null) {
