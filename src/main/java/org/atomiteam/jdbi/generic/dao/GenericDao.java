@@ -429,7 +429,17 @@ public class GenericDao<T> {
 
     private String columnName(String propertyName) {
         String property = requireMappedProperty(propertyName);
-        return requireIdentifier(codec.columnName(property, columnNaming), "column");
+        return requireSqlIdentifier(codec.columnName(property, columnNaming), "column");
+    }
+
+    private static String requireSqlIdentifier(String column, String description) {
+        // A codec may explicitly preserve a case-sensitive PostgreSQL column.
+        // Only one quoted identifier is accepted, never a SQL expression.
+        if (column != null && column.length() > 2 && column.startsWith("\"") && column.endsWith("\"")) {
+            requireIdentifier(column.substring(1, column.length() - 1), description);
+            return column;
+        }
+        return requireIdentifier(column, description);
     }
 
     private String requireMappedProperty(String propertyName) {
@@ -458,7 +468,7 @@ public class GenericDao<T> {
         }
         // Keep empty components so leading, trailing and consecutive dots are rejected.
         for (String component : value.split("\\.", -1)) {
-            requireIdentifier(component, "table");
+            requireSqlIdentifier(component, "table");
         }
         return value;
     }
