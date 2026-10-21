@@ -32,7 +32,8 @@ class MysqlJsonContractTest {
                                         + "(id bigint AUTO_INCREMENT PRIMARY KEY,tenant_id varchar(64),display_name varchar(64),payload JSON)"));
         try {
             GenericDao<Row> dao =
-                    new GenericDao<>(db, Row.class, table, ColumnNaming.SNAKE_CASE)
+                    DatabaseEngine.MYSQL
+                            .dao(db, Row.class, table, ColumnNaming.SNAKE_CASE)
                             .scoped(Map.of("tenantId", "a"));
             Row row = new Row();
             row.displayName = "Before";

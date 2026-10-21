@@ -24,7 +24,7 @@ class TypedPostgresContractTest {
         String url = System.getenv("DAO_JDBC_URL");
         assumeTrue(url != null && url.startsWith("jdbc:postgresql:"));
         Jdbi db =
-                DsqlSupport.configure(
+                DatabaseEngine.POSTGRESQL.configure(
                         Jdbi.create(
                                 url,
                                 System.getenv("DAO_JDBC_USER"),
@@ -38,7 +38,7 @@ class TypedPostgresContractTest {
                                         + " (\"tenantId\" text,\"id\" text,\"version\" bigint,\"displayName\" text,\"sourceDocument\" jsonb, PRIMARY KEY(\"tenantId\",\"id\"))"));
         try {
             var codec = new PostgresEntityCodec<>(Record.class, ColumnNaming.QUOTED_IDENTITY);
-            var dao = DsqlSupport.dao(db, Record.class, table, ColumnNaming.QUOTED_IDENTITY);
+            var dao = DatabaseEngine.POSTGRESQL.dao(db, Record.class, table);
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("large", 9007199254740993L);
             payload.put("explicitNull", null);

@@ -18,6 +18,16 @@ public enum ColumnNaming {
             return "\"" + propertyName + "\"";
         }
     },
+    /** Case-preserving MySQL columns without requiring ANSI_QUOTES session settings. */
+    BACKTICK_IDENTITY {
+        @Override
+        public String toColumnName(String propertyName) {
+            if (propertyName == null || !propertyName.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                throw new IllegalArgumentException("Invalid column property: " + propertyName);
+            }
+            return "`" + propertyName + "`";
+        }
+    },
     SNAKE_CASE {
         @Override
         public String toColumnName(String propertyName) {

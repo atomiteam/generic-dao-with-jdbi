@@ -1,5 +1,6 @@
 package org.atomiteam.jdbi.generic.query;
 
+import org.atomiteam.jdbi.generic.dao.DatabaseEngine;
 import org.atomiteam.jdbi.generic.dao.Sorting;
 
 import java.util.ArrayList;
@@ -25,6 +26,7 @@ public final class JdbiQuery {
     private static final String BIND_NAME = "[A-Za-z_][A-Za-z0-9_]*";
 
     private final String baseSql;
+    private final DatabaseEngine engine;
     private final List<String> predicates = new ArrayList<>();
     private final Map<String, Object> bindings = new LinkedHashMap<>();
     private final List<String> orderings = new ArrayList<>();
@@ -33,7 +35,8 @@ public final class JdbiQuery {
     private Long offset;
     private boolean seeking;
 
-    private JdbiQuery(String baseSql) {
+    private JdbiQuery(String baseSql, DatabaseEngine engine) {
+        this.engine = Objects.requireNonNull(engine, "engine");
         if (baseSql == null || baseSql.trim().isEmpty()) {
             throw new IllegalArgumentException("Base SQL cannot be blank");
         }
@@ -41,7 +44,12 @@ public final class JdbiQuery {
     }
 
     public static JdbiQuery select(String baseSql) {
-        return new JdbiQuery(baseSql);
+        return select(baseSql, DatabaseEngine.POSTGRESQL);
+    }
+
+    /** Explicit SQL dialect for engine-specific keyset null ordering. */
+    public static JdbiQuery select(String baseSql, DatabaseEngine engine) {
+        return new JdbiQuery(baseSql, engine);
     }
 
     /** Binds a named placeholder already present in the stable base SQL. */
@@ -254,7 +262,17 @@ public final class JdbiQuery {
         for (int i = 0; i < columns.size(); i++) {
             SeekColumn column = columns.get(i);
             String expression = expressions.get(i);
-            orderings.add(expression + " " + column.getDirection() + " NULLS " + column.getNulls());
+            if (engine == DatabaseEngine.MYSQL) {
+                orderings.add(
+                        "("
+                                + expression
+                                + " IS NULL) "
+                                + (column.getNulls() == SeekColumn.Nulls.FIRST ? "DESC" : "ASC"));
+                orderings.add(expression + " " + column.getDirection());
+            } else {
+                orderings.add(
+                        expression + " " + column.getDirection() + " NULLS " + column.getNulls());
+            }
             if (cursor == null) continue;
             List<String> prefix = new ArrayList<>();
             for (int j = 0; j < i; j++)
@@ -284,7 +302,7 @@ public final class JdbiQuery {
     }
 
     public JdbiQuery copy() {
-        JdbiQuery copy = new JdbiQuery(baseSql);
+        JdbiQuery copy = new JdbiQuery(baseSql, engine);
         copy.predicates.addAll(predicates);
         copy.bindings.putAll(bindings);
         copy.orderings.addAll(orderings);

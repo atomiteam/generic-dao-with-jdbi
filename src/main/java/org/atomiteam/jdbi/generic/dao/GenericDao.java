@@ -390,12 +390,12 @@ public class GenericDao<T> {
     }
 
     private static String requireSqlIdentifier(String column, String description) {
-        // A codec may explicitly preserve a case-sensitive PostgreSQL column.
+        // A codec may explicitly quote a PostgreSQL/DSQL or MySQL identifier.
         // Only one quoted identifier is accepted, never a SQL expression.
         if (column != null
                 && column.length() > 2
-                && column.startsWith("\"")
-                && column.endsWith("\"")) {
+                && ((column.startsWith("\"") && column.endsWith("\""))
+                        || (column.startsWith("`") && column.endsWith("`")))) {
             requireIdentifier(column.substring(1, column.length() - 1), description);
             return column;
         }
