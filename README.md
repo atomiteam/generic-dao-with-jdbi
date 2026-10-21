@@ -319,8 +319,9 @@ GenericDao<Activity> activities =
 activities.insert(activity);
 Optional<Activity> stored = activities.getByKey(Map.of("id", activity.id));
 JdbiQuery query = engine.query("SELECT * FROM activities")
-        .eq("tenantId", tenantId)
-        .seekAfter(List.of(new SeekColumn("id", Sorting.ASC, SeekColumn.Nulls.LAST)), null);
+        .eq(engine.columnNaming().toColumnName("tenantId"), tenantId)
+        .seekAfter(List.of(new SeekColumn(engine.columnNaming().toColumnName("id"),
+                Sorting.ASC, SeekColumn.Nulls.LAST)), null);
 ```
 
 | Engine | Default POJO column naming | JSON binding | JDBC configuration supplied by caller |

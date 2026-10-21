@@ -61,7 +61,7 @@ class DatabaseEngineTest {
                 handle.rollback();
                 assertFalse(handle.isClosed());
             }
-            row.order = null; row.payload = null;
+            row.tenantId = "a"; row.order = null; row.payload = null;
             assertEquals(1, dao.replaceByKey(Map.of("id", "one"), row));
             assertNull(dao.getById("one").orElseThrow().order);
             assertNull(dao.getById("one").orElseThrow().payload);
