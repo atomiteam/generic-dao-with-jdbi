@@ -303,3 +303,43 @@ CI publishes HTML/XML coverage and test results. Java 11 remains the library tar
 formatting uses Java 17+ with `bash scripts/format-java.sh --check` or `--write`.
 PostgreSQL and MySQL contracts run separately; DSQL driver-level tests are not a live
 AWS/IAM validation.
+
+## Explicit database engine configuration
+
+Select the engine explicitly in application configuration; the library does not
+read environment variables, open IAM sessions or manage credentials implicitly.
+
+```java
+DatabaseEngine engine = DatabaseEngine.parse(configuration.getDatabaseEngine());
+// Supported values: dsql, postgresql, mysql (case-insensitive).
+Jdbi database = engine.create(dataSource);
+GenericDao<Activity> activities =
+        engine.dao(database, Activity.class, "activities")
+                .scoped(Map.of("tenantId", tenantId));
+activities.insert(activity);
+Optional<Activity> stored = activities.getByKey(Map.of("id", activity.id));
+JdbiQuery query = engine.query("SELECT * FROM activities")
+        .eq("tenantId", tenantId)
+        .seekAfter(List.of(new SeekColumn("id", Sorting.ASC, SeekColumn.Nulls.LAST)), null);
+```
+
+| Engine | Default POJO column naming | JSON binding | JDBC configuration supplied by caller |
+| --- | --- | --- | --- |
+| DSQL | Quoted camelCase | Native PostgreSQL JSON | Aurora DSQL connector URL, region/IAM identity and TLS |
+| POSTGRESQL | Quoted camelCase | Native PostgreSQL JSON | PostgreSQL JDBC URL, authentication and TLS |
+| MYSQL | Backtick-quoted camelCase | Portable JSON strings | MySQL JDBC URL, authentication and TLS |
+
+Existing unquoted or snake_case schemas can pass `ColumnNaming.IDENTITY` or
+`ColumnNaming.SNAKE_CASE` explicitly. Engine-incompatible quote strategies are
+rejected. Existing GenericDao/DsqlSupport constructors retain their behavior.
+MySQL keyset queries use boolean null ordering instead of unsupported
+`NULLS FIRST/LAST`; the engine is preserved by query copies.
+Use `engine.query(...)` for this behavior; legacy `JdbiQuery.select(sql)` keeps its
+PostgreSQL/DSQL dialect for compatibility. This is not a translator for arbitrary
+vendor-specific SQL supplied in projections, predicates or annotations.
+
+Native CI tests exercise PostgreSQL 16 and MySQL 8.4. H2 and JDBC mock tests cover
+DSQL binding, scopes, rollback/retries and no-savepoint/no-isolation-setter rules.
+An actual Aurora DSQL test is separate: provide the approved connector/driver,
+`DAO_JDBC_URL` and IAM configuration, then run `mvn -Pdsql-contract verify`.
+No live DSQL cluster is exercised by the ordinary unit or PostgreSQL/MySQL jobs.

@@ -121,7 +121,8 @@ public class ReflectionEntityCodec<T> implements EntityCodec<T> {
 
     private static String label(Map<String, ?> values, String column) {
         String unquoted =
-                column.startsWith("\"") && column.endsWith("\"")
+                (column.startsWith("\"") && column.endsWith("\"")
+                                || column.startsWith("`") && column.endsWith("`"))
                         ? column.substring(1, column.length() - 1)
                         : column;
         if (values.containsKey(unquoted)) return unquoted;
