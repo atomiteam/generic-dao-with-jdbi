@@ -1,7 +1,7 @@
 package org.atomiteam.jdbi.generic.query;
 
-import org.atomiteam.jdbi.generic.dao.Sorting;
 import org.atomiteam.jdbi.generic.dao.DatabaseEngine;
+import org.atomiteam.jdbi.generic.dao.Sorting;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -263,11 +263,15 @@ public final class JdbiQuery {
             SeekColumn column = columns.get(i);
             String expression = expressions.get(i);
             if (engine == DatabaseEngine.MYSQL) {
-                orderings.add("(" + expression + " IS NULL) "
-                        + (column.getNulls() == SeekColumn.Nulls.FIRST ? "DESC" : "ASC"));
+                orderings.add(
+                        "("
+                                + expression
+                                + " IS NULL) "
+                                + (column.getNulls() == SeekColumn.Nulls.FIRST ? "DESC" : "ASC"));
                 orderings.add(expression + " " + column.getDirection());
             } else {
-                orderings.add(expression + " " + column.getDirection() + " NULLS " + column.getNulls());
+                orderings.add(
+                        expression + " " + column.getDirection() + " NULLS " + column.getNulls());
             }
             if (cursor == null) continue;
             List<String> prefix = new ArrayList<>();

@@ -1,13 +1,15 @@
 package org.atomiteam.jdbi.generic.dao;
 
-import java.util.Locale;
-import java.util.Objects;
-import javax.sql.DataSource;
 import org.jdbi.v3.core.Jdbi;
 
+import java.util.Locale;
+import java.util.Objects;
+
+import javax.sql.DataSource;
+
 /**
- * Explicit engine selection for POJO mapping and JSON binding. JDBC drivers, URLs,
- * credentials, IAM renewal and connection pools remain owned by the caller.
+ * Explicit engine selection for POJO mapping and JSON binding. JDBC drivers, URLs, credentials, IAM
+ * renewal and connection pools remain owned by the caller.
  */
 public enum DatabaseEngine {
     DSQL,
@@ -40,8 +42,7 @@ public enum DatabaseEngine {
         return dao(database, type, table, columnNaming());
     }
 
-    public <T> GenericDao<T> dao(
-            Jdbi database, Class<T> type, String table, ColumnNaming naming) {
+    public <T> GenericDao<T> dao(Jdbi database, Class<T> type, String table, ColumnNaming naming) {
         Objects.requireNonNull(naming, "naming");
         if (this == MYSQL && naming == ColumnNaming.QUOTED_IDENTITY
                 || this != MYSQL && naming == ColumnNaming.BACKTICK_IDENTITY) {

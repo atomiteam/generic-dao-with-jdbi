@@ -2,9 +2,11 @@ package org.atomiteam.jdbi.generic.dao;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
-import java.util.*;
+
 import org.jdbi.v3.core.Jdbi;
 import org.junit.jupiter.api.Test;
+
+import java.util.*;
 
 class DatabaseEngineTest {
     public static class Row {
@@ -17,22 +19,35 @@ class DatabaseEngineTest {
     @Test
     void configurationIsExplicitAndInvalidEnginesOrQuotingAreRejected() {
         for (DatabaseEngine engine : DatabaseEngine.values()) {
-            assertEquals(engine, DatabaseEngine.parse(" " + engine.name().toLowerCase(Locale.ROOT) + " "));
-            assertThrows(IllegalArgumentException.class,
-                    () -> engine.dao(Jdbi.create("jdbc:h2:mem:unused"), Row.class, "items",
-                            engine == DatabaseEngine.MYSQL
-                                    ? ColumnNaming.QUOTED_IDENTITY : ColumnNaming.BACKTICK_IDENTITY));
+            assertEquals(
+                    engine,
+                    DatabaseEngine.parse(" " + engine.name().toLowerCase(Locale.ROOT) + " "));
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () ->
+                            engine.dao(
+                                    Jdbi.create("jdbc:h2:mem:unused"),
+                                    Row.class,
+                                    "items",
+                                    engine == DatabaseEngine.MYSQL
+                                            ? ColumnNaming.QUOTED_IDENTITY
+                                            : ColumnNaming.BACKTICK_IDENTITY));
             assertThrows(NullPointerException.class, () -> engine.configure(null));
             assertThrows(NullPointerException.class, () -> engine.create(null));
-            assertThrows(NullPointerException.class,
+            assertThrows(
+                    NullPointerException.class,
                     () -> engine.dao(Jdbi.create("jdbc:h2:mem:unused"), Row.class, "items", null));
         }
         assertThrows(IllegalArgumentException.class, () -> DatabaseEngine.parse("oracle"));
         assertThrows(IllegalArgumentException.class, () -> DatabaseEngine.parse(""));
         assertThrows(NullPointerException.class, () -> DatabaseEngine.parse(null));
         assertEquals("`camelCase`", ColumnNaming.BACKTICK_IDENTITY.toColumnName("camelCase"));
-        assertThrows(IllegalArgumentException.class, () -> ColumnNaming.BACKTICK_IDENTITY.toColumnName(null));
-        assertThrows(IllegalArgumentException.class, () -> ColumnNaming.BACKTICK_IDENTITY.toColumnName("id;DROP"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ColumnNaming.BACKTICK_IDENTITY.toColumnName(null));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ColumnNaming.BACKTICK_IDENTITY.toColumnName("id;DROP"));
     }
 
     @Test
@@ -40,18 +55,42 @@ class DatabaseEngineTest {
         for (DatabaseEngine engine : DatabaseEngine.values()) {
             String mode = engine == DatabaseEngine.MYSQL ? "MySQL" : "PostgreSQL";
             var source = new org.h2.jdbcx.JdbcDataSource();
-            source.setURL("jdbc:h2:mem:" + UUID.randomUUID() + ";MODE=" + mode + ";DB_CLOSE_DELAY=-1");
+            source.setURL(
+                    "jdbc:h2:mem:" + UUID.randomUUID() + ";MODE=" + mode + ";DB_CLOSE_DELAY=-1");
             Jdbi db = engine.create(source);
             String q = engine == DatabaseEngine.MYSQL ? "`" : "\"";
-            db.useHandle(h -> h.execute("CREATE TABLE items(" + q + "id" + q + " varchar,"
-                    + q + "tenantId" + q + " varchar," + q + "order" + q + " varchar,"
-                    + q + "payload" + q + " varchar)"));
+            db.useHandle(
+                    h ->
+                            h.execute(
+                                    "CREATE TABLE items("
+                                            + q
+                                            + "id"
+                                            + q
+                                            + " varchar,"
+                                            + q
+                                            + "tenantId"
+                                            + q
+                                            + " varchar,"
+                                            + q
+                                            + "order"
+                                            + q
+                                            + " varchar,"
+                                            + q
+                                            + "payload"
+                                            + q
+                                            + " varchar)"));
             var dao = engine.dao(db, Row.class, "items").scoped(Map.of("tenantId", "a"));
-            var row = new Row(); row.id = "one"; row.order = "Before"; row.payload = Map.of("key", "value");
+            var row = new Row();
+            row.id = "one";
+            row.order = "Before";
+            row.payload = Map.of("key", "value");
             dao.insert(row);
             assertEquals("value", dao.getById("one").orElseThrow().payload.get("key"));
-            assertTrue(engine.dao(db, Row.class, "items").scoped(Map.of("tenantId", "b"))
-                    .getById("one").isEmpty());
+            assertTrue(
+                    engine.dao(db, Row.class, "items")
+                            .scoped(Map.of("tenantId", "b"))
+                            .getById("one")
+                            .isEmpty());
             assertEquals(1, dao.updateByKey(Map.of("id", "one"), Map.of("order", "After")));
             assertEquals("After", dao.getById("one").orElseThrow().order);
             try (var handle = db.open()) {
@@ -61,7 +100,9 @@ class DatabaseEngineTest {
                 handle.rollback();
                 assertFalse(handle.isClosed());
             }
-            row.tenantId = "a"; row.order = null; row.payload = null;
+            row.tenantId = "a";
+            row.order = null;
+            row.payload = null;
             assertEquals(1, dao.replaceByKey(Map.of("id", "one"), row));
             assertNull(dao.getById("one").orElseThrow().order);
             assertNull(dao.getById("one").orElseThrow().payload);
